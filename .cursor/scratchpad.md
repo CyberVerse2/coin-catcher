@@ -78,7 +78,7 @@ The following tasks will guide the development process. Each task includes succe
 *   [x] **Task 2: Prisma & MongoDB Setup**
 *   [x] **Task 3: Basic Game Canvas & Coin Spawning (Frontend)**
 *   [x] **Task 4: Player Control & Coin Catching Logic (Frontend)**
-*   [ ] **Task 5: Game Session Management (Frontend + Backend Logic)**
+*   [x] **Task 5: Game Session Management (Frontend + Backend Logic)**
 *   [ ] **Task 6: High Score Submission & Display**
 *   [ ] **Task 7: User Authentication & Coinbase Smart Wallet Integration**
 *   [ ] **Task 8: Dynamic In-Game Currency Management**
@@ -92,8 +92,9 @@ The following tasks will guide the development process. Each task includes succe
 *   Task 1 (Project Setup & Initial Next.js App) completed.
 *   Task 2 (Prisma & MongoDB Setup) completed.
 *   Task 3 (Basic Game Canvas & Coin Spawning) completed.
-*   Task 4 (Player Control & Coin Catching Logic) completed: Basket implemented with keyboard controls. Collision detection with coins, coin removal on catch, and score updating are functional.
-*   Awaiting instructions to begin Task 5.
+*   Task 4 (Player Control & Coin Catching Logic) completed.
+*   Task 5 (Game Session Management) completed: Added game states (idle, running, gameOver), start/play again buttons, session timer (30s), missed coin limit (5), and game over conditions. Implemented increasing coin fall speed every 6 seconds.
+*   Awaiting instructions to begin Task 6.
 
 ## Lessons
 

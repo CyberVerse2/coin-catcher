@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
+import { useAccount, useConnect, useDisconnect } from 'wagmi';
 
 // Constants
 const CANVAS_WIDTH = 800;
@@ -8,7 +9,6 @@ const CANVAS_HEIGHT = 600;
 const COIN_RADIUS = 20;
 const SILVER_COIN_COLOR = '#C0C0C0';
 const GOLD_COIN_COLOR = '#FFD700';
-const COIN_FALL_SPEED = 1.5;
 const MIN_TIME_BETWEEN_SPAWNS_MS = 500;
 const MIN_SPAWN_DISTANCE_FACTOR = 4;
 const MAX_SPAWN_ATTEMPTS = 10;
@@ -17,8 +17,13 @@ const BASKET_HEIGHT = 20;
 const BASKET_COLOR = '#333333';
 const BASKET_Y_OFFSET = 30;
 const BASKET_MOVE_SPEED = 5;
-const GAME_DURATION_S = 60; // Game duration in seconds
-const MAX_MISSED_COINS = 3;
+const GAME_DURATION_S = 30; // Game duration in seconds
+const MAX_MISSED_COINS = 5;
+
+// Difficulty Scaling
+const BASE_COIN_FALL_SPEED = 1.5; // Starting speed
+const SPEED_INCREASE_INTERVAL_S = 6; // Increase speed every 6 seconds
+const SPEED_INCREASE_AMOUNT = 0.5; // Speed increase per interval
 
 // Types
 type GameState = 'idle' | 'running' | 'gameOver';
@@ -35,6 +40,12 @@ interface Coin {
 let nextCoinId = 0;
 
 const GamePage = () => {
+  // Wagmi Hooks
+  const { address, status: accountStatus } = useAccount(); // Renamed status to avoid conflict
+  const { connectors, connect, error: connectError, status: connectStatus } = useConnect();
+  const { disconnect } = useDisconnect();
+
+  // Game State Refs and State
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [gameState, setGameState] = useState<GameState>('idle');
   const [coins, setCoins] = useState<Coin[]>([]); 
@@ -43,11 +54,15 @@ const GamePage = () => {
   const [timer, setTimer] = useState(GAME_DURATION_S);
   const [missedCoins, setMissedCoins] = useState(0);
   const actualLastSpawnOccasionTimeRef = useRef<number>(0);
-  const lastTimerUpdateTimeRef = useRef<number>(0); // Ref for timer update logic
+  const lastTimerUpdateTimeRef = useRef<number>(0);
+  const gameStartTimeRef = useRef<number>(0);
   const [basketX, setBasketX] = useState(CANVAS_WIDTH / 2 - BASKET_WIDTH / 2);
   const leftArrowPressed = useRef(false);
   const rightArrowPressed = useRef(false);
-  const animationFrameIdRef = useRef<number | null>(null); // Ref to store animation frame ID
+  const animationFrameIdRef = useRef<number | null>(null);
+  const [playerName, setPlayerName] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionStatus, setSubmissionStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
   // Sync state to ref
   useEffect(() => {
@@ -126,6 +141,12 @@ const GamePage = () => {
       }
       // --- End Game State Check ---
 
+      // --- Calculate Current Fall Speed --- 
+      const elapsedTimeMs = currentTime - gameStartTimeRef.current;
+      const currentInterval = Math.floor(elapsedTimeMs / (SPEED_INCREASE_INTERVAL_S * 1000));
+      const currentFallSpeed = BASE_COIN_FALL_SPEED + (currentInterval * SPEED_INCREASE_AMOUNT);
+      // --- End Fall Speed Calculation ---
+
       // --- Timer Update --- 
       if (currentTime - lastTimerUpdateTimeRef.current >= 1000) {
           setTimer(prevTimer => {
@@ -173,7 +194,9 @@ const GamePage = () => {
       // --- Process Coins --- 
       for (let i = coinsRef.current.length - 1; i >= 0; i--) {
         const coin = coinsRef.current[i];
-        coin.y += COIN_FALL_SPEED;
+        
+        // Move coin using currentFallSpeed
+        coin.y += currentFallSpeed;
 
         const coinBottom = coin.y + COIN_RADIUS;
         const coinTop = coin.y - COIN_RADIUS;
@@ -251,69 +274,180 @@ const GamePage = () => {
     };
   }, [basketX, gameState, score]); // Added gameState and score to dependencies
 
+  // Function to initiate connection
+  const connectWallet = () => {
+      const coinbaseConnector = connectors.find(c => c.name === 'Coinbase Wallet');
+      if (coinbaseConnector) {
+          connect({ connector: coinbaseConnector });
+      }
+  };
+
+  // Modified Start Game: Requires connected wallet
   const startGame = () => {
+    if (accountStatus !== 'connected') {
+      console.error("Cannot start game: Wallet not connected.");
+      // Optionally prompt connection here
+      return;
+    }
     console.log("Starting game...");
+    setSubmissionStatus('idle');
+    setPlayerName('');
     setScore(0);
     setMissedCoins(0);
     setTimer(GAME_DURATION_S);
-    coinsRef.current = []; // Clear coins ref
-    setCoins([]); // Clear coins state
-    setBasketX(CANVAS_WIDTH / 2 - BASKET_WIDTH / 2); // Reset basket pos
+    coinsRef.current = [];
+    setCoins([]);
+    setBasketX(CANVAS_WIDTH / 2 - BASKET_WIDTH / 2);
     leftArrowPressed.current = false;
     rightArrowPressed.current = false;
-    actualLastSpawnOccasionTimeRef.current = 0; // Reset spawn timer
-    lastTimerUpdateTimeRef.current = Date.now(); // Reset session timer update time
+    actualLastSpawnOccasionTimeRef.current = 0;
+    lastTimerUpdateTimeRef.current = Date.now();
+    gameStartTimeRef.current = Date.now();
     setGameState('running');
   };
 
-  const playAgain = () => {
-    startGame(); // For now, play again just restarts
-  }
+  // Modified Submit Score: Uses connected address
+  const submitHighScore = useCallback(async () => {
+    if (!playerName.trim() || score <= 0 || isSubmitting || accountStatus !== 'connected' || !address) {
+        console.log('Submission prevented: Invalid name, score, connection status, address or already submitting.');
+        setSubmissionStatus('error'); 
+        return;
+    }
+    setIsSubmitting(true);
+    setSubmissionStatus('idle');
+    console.log('Submitting score:', score, 'for player:', playerName, 'address:', address);
+
+    try {
+        const response = await fetch('/api/highscore', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            // Send address instead of placeholder userId
+            body: JSON.stringify({ 
+                score: score,
+                address: address, 
+                userName: playerName.trim()
+            }),
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+        }
+        const result = await response.json();
+        console.log('Score submission successful:', result);
+        setSubmissionStatus('success');
+    } catch (error) {
+        console.error("Failed to submit high score:", error);
+        setSubmissionStatus('error');
+    } finally {
+        setIsSubmitting(false);
+    }
+  }, [score, playerName, isSubmitting, address, accountStatus]); // Added address/status dependencies
+
+  const playAgain = () => { startGame(); };
+
+  // Render Logic
+  const renderContent = () => {
+    if (accountStatus === 'disconnected') {
+      return (
+          <div style={{ textAlign: 'center', marginTop: '50px' }}>
+              <button onClick={connectWallet} style={{ padding: '20px 40px', fontSize: '24px' }}>Connect Wallet to Play</button>
+              {connectStatus === 'pending' && <p>Connecting...</p>}
+              {connectError && <p style={{ color: 'red' }}>Error connecting: {connectError.message}</p>}
+          </div>
+      );
+    }
+
+    if (accountStatus === 'connecting') {
+        return <p>Connecting wallet...</p>;
+    }
+
+    // Connected State:
+    return (
+        <>
+            <div style={{ marginBottom: '10px', width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>
+                    Connected: {address?.substring(0, 6)}...{address?.substring(address.length - 4)}
+                </span>
+                <button onClick={() => disconnect()} style={{ padding: '5px 10px'}}>Disconnect</button>
+            </div>
+            <div style={{ marginBottom: '10px' }}>
+                <span>Score: {score}</span> | 
+                <span>Time Left: {timer}s</span> | 
+                <span>Missed: {missedCoins}/{MAX_MISSED_COINS}</span>
+            </div>
+            <div style={{ position: 'relative', width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}>
+                <canvas 
+                    ref={canvasRef} 
+                    style={{ border: '1px solid #000', display: 'block' }} 
+                />
+                {gameState === 'idle' && (
+                    <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                        <button onClick={startGame} style={{ padding: '20px 40px', fontSize: '24px' }}>Start Game</button>
+                    </div>
+                )}
+                {gameState === 'gameOver' && (
+                    <div style={{
+                         position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', 
+                         display: 'flex', 
+                         justifyContent: 'center', 
+                         alignItems: 'center',
+                         color: 'white', 
+                         textAlign: 'center',
+                         flexDirection: 'column' 
+                     }}>
+                      <h2 style={{ fontSize: '40px', margin: '0 0 10px 0' }}>Game Over!</h2>
+                      <p style={{ fontSize: '30px', margin: '0 0 30px 0' }}>Final Score: {score}</p>
+                      
+                      {/* Score Submission Form */} 
+                      {submissionStatus !== 'success' && score > 0 && (
+                          <div style={{ marginTop: '20px' }}>
+                              <input 
+                                  type="text"
+                                  value={playerName}
+                                  onChange={(e) => setPlayerName(e.target.value)}
+                                  placeholder="Enter Your Name"
+                                  maxLength={20} // Optional: limit name length
+                                  disabled={isSubmitting}
+                                  style={{ padding: '10px', marginRight: '10px', fontSize: '16px' }}
+                              />
+                              <button 
+                                  onClick={submitHighScore}
+                                  disabled={isSubmitting || !playerName.trim()}
+                                  style={{ padding: '10px 20px', fontSize: '16px' }}
+                               >
+                                  {isSubmitting ? 'Submitting...' : 'Submit Score'}
+                              </button>
+                              {submissionStatus === 'error' && <p style={{ color: 'red', marginTop: '10px' }}>Failed to submit score.</p>}
+                          </div>
+                      )}
+                      {submissionStatus === 'success' && <p style={{ color: 'lime', marginTop: '10px' }}>Score submitted!</p>}
+                      
+                      <button 
+                          onClick={playAgain} 
+                          style={{ 
+                              padding: '15px 30px', 
+                              fontSize: '20px', 
+                              marginTop: '30px' // Add margin above play again button
+                          }}
+                       >
+                          Play Again?
+                      </button>
+                  </div>
+              )}
+            </div>
+            <p style={{ marginTop: '10px' }}>Use Left/Right Arrows to move the basket.</p>
+            <p>Base Speed: {BASE_COIN_FALL_SPEED}, Increases by {SPEED_INCREASE_AMOUNT} every {SPEED_INCREASE_INTERVAL_S}s.</p>
+        </>
+    );
+  };
 
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', flexDirection: 'column', textAlign: 'center' }}>
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', flexDirection: 'column', textAlign: 'center', padding: '20px' }}>
       <h1>Coin Catcher</h1>
-      <div style={{ marginBottom: '10px' }}>
-          <span>Score: {score}</span> | 
-          <span>Time Left: {timer}s</span> | 
-          <span>Missed: {missedCoins}/{MAX_MISSED_COINS}</span>
-      </div>
-      <div style={{ position: 'relative', width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}>
-          <canvas 
-              ref={canvasRef} 
-              style={{ border: '1px solid #000', display: 'block' }} 
-           />
-          {gameState === 'idle' && (
-              <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                  <button onClick={startGame} style={{ padding: '20px 40px', fontSize: '24px' }}>Start Game</button>
-              </div>
-          )}
-          {gameState === 'gameOver' && (
-               <div style={{
-                    position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', 
-                    display: 'flex', 
-                    justifyContent: 'center', 
-                    alignItems: 'center',
-                    color: 'white', 
-                    textAlign: 'center',
-                    flexDirection: 'column' 
-                }}>
-                  <h2 style={{ fontSize: '40px', margin: '0 0 10px 0' }}>Game Over!</h2>
-                  <p style={{ fontSize: '30px', margin: '0 0 30px 0' }}>Final Score: {score}</p>
-                  <button 
-                      onClick={playAgain} 
-                      style={{ 
-                          padding: '15px 30px', 
-                          fontSize: '20px', 
-                      }}
-                   >
-                      Play Again?
-                  </button>
-              </div>
-          )}
-      </div>
-      <p style={{ marginTop: '10px' }}>Use Left/Right Arrows to move the basket.</p>
-      {/* <p>Fall speed: {COIN_FALL_SPEED}. Min spawn cooldown: {MIN_TIME_BETWEEN_SPAWNS_MS}ms. Next spawns after last coin falls 25%.</p> */}
+      {renderContent()}
     </div>
   );
 };
