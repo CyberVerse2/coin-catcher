@@ -77,7 +77,7 @@ The following tasks will guide the development process. Each task includes succe
 *   [x] **Task 1: Project Setup & Initial Next.js App**
 *   [x] **Task 2: Prisma & MongoDB Setup**
 *   [x] **Task 3: Basic Game Canvas & Coin Spawning (Frontend)**
-*   [ ] **Task 4: Player Control & Coin Catching Logic (Frontend)**
+*   [x] **Task 4: Player Control & Coin Catching Logic (Frontend)**
 *   [ ] **Task 5: Game Session Management (Frontend + Backend Logic)**
 *   [ ] **Task 6: High Score Submission & Display**
 *   [ ] **Task 7: User Authentication & Coinbase Smart Wallet Integration**
@@ -91,8 +91,9 @@ The following tasks will guide the development process. Each task includes succe
 
 *   Task 1 (Project Setup & Initial Next.js App) completed.
 *   Task 2 (Prisma & MongoDB Setup) completed.
-*   Task 3 (Basic Game Canvas & Coin Spawning) completed: Created `/game` page with HTML5 canvas. Implemented logic for silver and gold coins (10:1 ratio, 1 and 5 points respectively) to fall from the top. Spawn ratio is verifiable via console logs.
-*   Awaiting instructions to begin Task 4.
+*   Task 3 (Basic Game Canvas & Coin Spawning) completed.
+*   Task 4 (Player Control & Coin Catching Logic) completed: Basket implemented with keyboard controls. Collision detection with coins, coin removal on catch, and score updating are functional.
+*   Awaiting instructions to begin Task 5.
 
 ## Lessons
 

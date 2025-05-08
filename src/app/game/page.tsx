@@ -2,24 +2,22 @@
 
 import React, { useRef, useEffect, useState } from 'react';
 
-// Constants
-const CANVAS_WIDTH = 800;    // User updated
-const CANVAS_HEIGHT = 600;   // User updated
-const COIN_RADIUS = 20;      // User updated
+// Constants (ensure these are final user values)
+const CANVAS_WIDTH = 800;
+const CANVAS_HEIGHT = 600;
+const COIN_RADIUS = 20;
 const SILVER_COIN_COLOR = '#C0C0C0';
 const GOLD_COIN_COLOR = '#FFD700';
-const COIN_FALL_SPEED = 1.5; // User updated
-const MIN_TIME_BETWEEN_SPAWNS_MS = 500; // New: Min cooldown between spawn attempts
-const COIN_LIFETIME_MS = 3000; // Each coin stays for 3 seconds unless it falls off earlier
-const MIN_SPAWN_DISTANCE_FACTOR = 4; // Factor for minimum distance (COIN_RADIUS * factor)
-const MAX_SPAWN_ATTEMPTS = 10; // Attempts to find a clear spawn spot
+const COIN_FALL_SPEED = 1.5;
+const MIN_TIME_BETWEEN_SPAWNS_MS = 500;
+const MIN_SPAWN_DISTANCE_FACTOR = 4;
+const MAX_SPAWN_ATTEMPTS = 10;
 
-// Basket Constants
 const BASKET_WIDTH = 100;
 const BASKET_HEIGHT = 20;
 const BASKET_COLOR = '#333333';
-const BASKET_Y_OFFSET = 30; // From bottom of canvas
-const BASKET_MOVE_SPEED = 20; // Speed for keyboard controls
+const BASKET_Y_OFFSET = 30;
+const BASKET_MOVE_SPEED = 5;
 
 interface Coin {
   id: number;
@@ -27,7 +25,7 @@ interface Coin {
   y: number;
   type: 'silver' | 'gold';
   value: number;
-  spawnTime: number; // To track lifetime
+  spawnTime: number;
 }
 
 let nextCoinId = 0;
@@ -35,12 +33,15 @@ let nextCoinId = 0;
 const GamePage = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [coins, setCoins] = useState<Coin[]>([]);
+  const coinsRef = useRef<Coin[]>([]); // Ref holds the mutable game state for the loop
+
   const [score, setScore] = useState(0);
-  const actualLastSpawnOccasionTimeRef = useRef<number>(0); // Ref to track last successful spawn time
+  const actualLastSpawnOccasionTimeRef = useRef<number>(0);
   const [basketX, setBasketX] = useState(CANVAS_WIDTH / 2 - BASKET_WIDTH / 2);
   const leftArrowPressed = useRef(false);
   const rightArrowPressed = useRef(false);
 
+  // Main game loop and event listeners effect
   useEffect(() => {
     const canvasElement = canvasRef.current;
     if (!canvasElement) return;
@@ -50,151 +51,160 @@ const GamePage = () => {
     canvasElement.width = CANVAS_WIDTH;
     canvasElement.height = CANVAS_HEIGHT;
 
-    // Keyboard event handlers
+    // Sync initial state to ref
+    coinsRef.current = coins;
+
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'ArrowLeft') {
-        leftArrowPressed.current = true;
-      }
-      if (event.key === 'ArrowRight') {
-        rightArrowPressed.current = true;
-      }
+      if (event.key === 'ArrowLeft') leftArrowPressed.current = true;
+      if (event.key === 'ArrowRight') rightArrowPressed.current = true;
     };
-
     const handleKeyUp = (event: KeyboardEvent) => {
-      if (event.key === 'ArrowLeft') {
-        leftArrowPressed.current = false;
-      }
-      if (event.key === 'ArrowRight') {
-        rightArrowPressed.current = false;
-      }
+      if (event.key === 'ArrowLeft') leftArrowPressed.current = false;
+      if (event.key === 'ArrowRight') rightArrowPressed.current = false;
     };
-
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
 
     const spawnCoin = () => {
       let attempts = 0;
       const minHorizontalDistance = COIN_RADIUS * MIN_SPAWN_DISTANCE_FACTOR;
-
-      findSpotAndSpawn: while (attempts < MAX_SPAWN_ATTEMPTS) {
+      while (attempts < MAX_SPAWN_ATTEMPTS) {
         const potentialX = Math.random() * (CANVAS_WIDTH - COIN_RADIUS * 2) + COIN_RADIUS;
         let tooClose = false;
-
-        for (const existingCoin of coins) {
-          if (existingCoin.y < COIN_RADIUS * 5) {
-            if (Math.abs(potentialX - existingCoin.x) < minHorizontalDistance) {
-              tooClose = true;
-              break;
-            }
+        for (const existingCoin of coinsRef.current) { // Use ref
+          if (existingCoin.y < COIN_RADIUS * 5 && Math.abs(potentialX - existingCoin.x) < minHorizontalDistance) {
+            tooClose = true; break;
           }
         }
-
         if (!tooClose) {
           const isGold = Math.random() < 1 / 11;
           const newCoin: Coin = {
-            id: nextCoinId++,
-            x: potentialX,
-            y: -COIN_RADIUS,
-            type: isGold ? 'gold' : 'silver',
-            value: isGold ? 5 : 1,
-            spawnTime: Date.now(), // Record spawn time
+            id: nextCoinId++, x: potentialX, y: -COIN_RADIUS,
+            type: isGold ? 'gold' : 'silver', value: isGold ? 5 : 1,
+            spawnTime: Date.now(),
           };
-          setCoins((prevCoins) => [...prevCoins, newCoin]);
-          actualLastSpawnOccasionTimeRef.current = Date.now(); // Update time of successful spawn
+          console.log(`Spawning coin ${newCoin.id}`);
+          coinsRef.current.push(newCoin); // Mutate ref directly
+          setCoins([...coinsRef.current]); // Update state to trigger re-render eventually
+          actualLastSpawnOccasionTimeRef.current = Date.now();
           return;
         }
         attempts++;
       }
-      // console.log('Skipped spawning: No clear spot found.');
     };
 
     let animationFrameId: number;
+    const gameLoop = () => {
+      if (!context) return; // Ensure context is still valid
 
-    const gameLoop = () => { // Removed timestamp as it wasn't used for Date.now() comparisons
       context.fillStyle = '#f0f0f0';
       context.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      const currentTime = Date.now();
 
-      const currentTime = Date.now(); // Use consistent Date.now() for this frame's logic
-
-      // Update basket position based on keyboard input
       let newBasketX = basketX;
-      if (leftArrowPressed.current) {
-        newBasketX -= BASKET_MOVE_SPEED;
-      }
-      if (rightArrowPressed.current) {
-        newBasketX += BASKET_MOVE_SPEED;
-      }
-      // Constrain basket
+      if (leftArrowPressed.current) newBasketX -= BASKET_MOVE_SPEED;
+      if (rightArrowPressed.current) newBasketX += BASKET_MOVE_SPEED;
       if (newBasketX < 0) newBasketX = 0;
       if (newBasketX + BASKET_WIDTH > CANVAS_WIDTH) newBasketX = CANVAS_WIDTH - BASKET_WIDTH;
-      // Only call setBasketX if position actually changed to avoid unnecessary re-renders from this source
-      // Though useEffect already depends on basketX, this is a good practice.
-      if (newBasketX !== basketX) {
-         setBasketX(newBasketX);
-      }
+      if (newBasketX !== basketX) setBasketX(newBasketX);
 
-      // Spawn logic
-      if (currentTime - actualLastSpawnOccasionTimeRef.current > MIN_TIME_BETWEEN_SPAWNS_MS) {
-        if (coins.length === 0) {
+      // Restore original spawn logic, operating on coinsRef.current
+      const timeSinceLastSpawn = currentTime - actualLastSpawnOccasionTimeRef.current;
+      if (timeSinceLastSpawn > MIN_TIME_BETWEEN_SPAWNS_MS) {
+        if (coinsRef.current.length === 0) {
+          // console.log(`Spawn check: OK (ref empty)`);
           spawnCoin();
         } else {
-          const lastCoin = coins[coins.length - 1]; // Get the most recently spawned coin
+          const lastCoin = coinsRef.current[coinsRef.current.length - 1];
           if (lastCoin.y >= CANVAS_HEIGHT * 0.25) {
+            // console.log(`Spawn check: OK (last coin Y ${lastCoin.y.toFixed(1)} >= ${CANVAS_HEIGHT * 0.25})`);
             spawnCoin();
           }
         }
       }
 
-      setCoins((prevCoins) =>
-        prevCoins
-          .map((coin) => ({ ...coin, y: coin.y + COIN_FALL_SPEED }))
-          .filter((coin) => 
-            coin.y < CANVAS_HEIGHT + COIN_RADIUS && // Still on screen vertically
-            (currentTime - coin.spawnTime) < COIN_LIFETIME_MS // Lifetime not expired
-          )
-      );
+      const basketTopY = CANVAS_HEIGHT - BASKET_HEIGHT - BASKET_Y_OFFSET;
+      const basketBottomY = basketTopY + BASKET_HEIGHT;
+      const basketLeftX = basketX;
+      const basketRightX = basketX + BASKET_WIDTH;
 
-      coins.forEach((coin) => {
+      let scoreUpdateAmountInFrame = 0;
+      let coinsChanged = false;
+      
+      // Process coins directly from the ref, iterating backwards for safe removal
+      for (let i = coinsRef.current.length - 1; i >= 0; i--) {
+        const coin = coinsRef.current[i];
+        
+        // Move coin
+        coin.y += COIN_FALL_SPEED;
+
+        const coinBottom = coin.y + COIN_RADIUS;
+        const coinTop = coin.y - COIN_RADIUS;
+        const coinLeft = coin.x - COIN_RADIUS;
+        const coinRight = coin.x + COIN_RADIUS;
+        
+        // Check if off-screen
+        if (coin.y - COIN_RADIUS > CANVAS_HEIGHT) { // Check if top edge is below bottom
+             console.log(`Coin ${coin.id} removed (off-screen)`);
+             coinsRef.current.splice(i, 1);
+             coinsChanged = true;
+             continue; // Go to next coin
+        }
+
+        // Check for collision with basket
+        const caught = 
+            coinBottom >= basketTopY &&
+            coinTop <= basketBottomY && 
+            coinRight >= basketLeftX &&
+            coinLeft <= basketRightX;
+
+        if (caught) {
+          scoreUpdateAmountInFrame += coin.value;
+          console.log(`Coin ${coin.id} removed (caught)`);
+          coinsRef.current.splice(i, 1);
+          coinsChanged = true;
+          // No continue here, let score update happen below
+        }
+      }
+      
+      // Update React state if changes occurred
+      if (coinsChanged) {
+          setCoins([...coinsRef.current]); // Trigger re-render for potential UI updates
+      }
+      if (scoreUpdateAmountInFrame > 0) {
+        setScore(prevScore => prevScore + scoreUpdateAmountInFrame);
+      }
+
+      // Draw all coins currently in the ref
+      context.fillStyle = SILVER_COIN_COLOR; // Default color
+      coinsRef.current.forEach((coin) => {
         context.beginPath();
         context.arc(coin.x, coin.y, COIN_RADIUS, 0, Math.PI * 2);
         context.fillStyle = coin.type === 'gold' ? GOLD_COIN_COLOR : SILVER_COIN_COLOR;
         context.fill();
         context.closePath();
       });
-      
-      // Draw basket
+
       context.fillStyle = BASKET_COLOR;
-      context.fillRect(basketX, CANVAS_HEIGHT - BASKET_HEIGHT - BASKET_Y_OFFSET, BASKET_WIDTH, BASKET_HEIGHT);
-
-      if (coins.length > 0 && coins.some(c => c.id === nextCoinId -1) && (nextCoinId-1) % 10 === 0) { 
-          const currentCoinsForLog = coins; // Use a consistent snapshot for logging
-          const silverCount = currentCoinsForLog.filter(c => c.type === 'silver').length;
-          const goldCount = currentCoinsForLog.filter(c => c.type === 'gold').length;
-          console.log(`Coins on screen: ${currentCoinsForLog.length}. Silver: ${silverCount}, Gold: ${goldCount} (S/G Ratio: ${goldCount > 0 ? (silverCount/goldCount).toFixed(1): 'inf'}) Last ID: ${nextCoinId-1}`);
-      }
-
+      context.fillRect(basketX, basketTopY, BASKET_WIDTH, BASKET_HEIGHT);
       animationFrameId = requestAnimationFrame(gameLoop);
     };
-
-    // Initialize actualLastSpawnOccasionTimeRef to allow first spawn after MIN_TIME_BETWEEN_SPAWNS_MS
-    actualLastSpawnOccasionTimeRef.current = Date.now() - MIN_TIME_BETWEEN_SPAWNS_MS; 
 
     animationFrameId = requestAnimationFrame(gameLoop);
 
     return () => {
       cancelAnimationFrame(animationFrameId);
-      // canvasElement.removeEventListener('mousemove', handleMouseMove); // Removed mouse listener
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [coins, basketX]); // basketX still needed for re-render when it changes, coins for game logic
+  }, [basketX]); // Only depends on basketX now for re-running effect
 
   return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', flexDirection: 'column' }}>
       <h1>Coin Catcher</h1>
       <p>Score: {score}</p>
       <canvas ref={canvasRef} style={{ border: '1px solid #000' }} />
-      <p>Coin Lifetime: {COIN_LIFETIME_MS / 1000}s. Fall speed: {COIN_FALL_SPEED}. Min spawn cooldown: {MIN_TIME_BETWEEN_SPAWNS_MS}ms. Next spawns after last coin falls 25%.</p>
+      <p>Fall speed: {COIN_FALL_SPEED}. Min spawn cooldown: {MIN_TIME_BETWEEN_SPAWNS_MS}ms. Next spawns after last coin falls 25%.</p>
     </div>
   );
 };
