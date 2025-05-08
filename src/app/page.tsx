@@ -21,14 +21,14 @@ const BASKET_WIDTH = 100;
 const BASKET_HEIGHT = 20;
 const BASKET_COLOR = '#333333';
 const BASKET_Y_OFFSET = 30;
-const BASKET_MOVE_SPEED = 13;
-const GAME_DURATION_S = 30; // Game duration in seconds
+const BASKET_MOVE_SPEED = 5;
+const GAME_DURATION_S = 45; // Game duration in seconds
 const MAX_MISSED_COINS = 6;
 
 // Difficulty Scaling
-const BASE_COIN_FALL_SPEED = 4; // Original value
+const BASE_COIN_FALL_SPEED = 1.5; // Original value
 const SPEED_INCREASE_INTERVAL_S = 6; // Original value
-const SPEED_INCREASE_AMOUNT = 1.5; // Original value
+const SPEED_INCREASE_AMOUNT = 0.5; // Original value
 
 // Types
 type GameState = 'idle' | 'running' | 'gameOver';
