@@ -75,8 +75,8 @@ The following tasks will guide the development process. Each task includes succe
 ## Project Status Board
 
 *   [x] **Task 1: Project Setup & Initial Next.js App**
-*   [ ] **Task 2: Prisma & MongoDB Setup**
-*   [ ] **Task 3: Basic Game Canvas & Coin Spawning (Frontend)**
+*   [x] **Task 2: Prisma & MongoDB Setup**
+*   [x] **Task 3: Basic Game Canvas & Coin Spawning (Frontend)**
 *   [ ] **Task 4: Player Control & Coin Catching Logic (Frontend)**
 *   [ ] **Task 5: Game Session Management (Frontend + Backend Logic)**
 *   [ ] **Task 6: High Score Submission & Display**
@@ -89,8 +89,10 @@ The following tasks will guide the development process. Each task includes succe
 
 ## Executor's Feedback or Assistance Requests
 
-*   Task 1 (Project Setup & Initial Next.js App) completed. Verified existing Next.js app, App Router usage, and created standard project directories (`components`, `lib`, `prisma`, `public`, `styles`) within `src`.
-*   Awaiting instructions to begin Task 2.
+*   Task 1 (Project Setup & Initial Next.js App) completed.
+*   Task 2 (Prisma & MongoDB Setup) completed.
+*   Task 3 (Basic Game Canvas & Coin Spawning) completed: Created `/game` page with HTML5 canvas. Implemented logic for silver and gold coins (10:1 ratio, 1 and 5 points respectively) to fall from the top. Spawn ratio is verifiable via console logs.
+*   Awaiting instructions to begin Task 4.
 
 ## Lessons
 
@@ -104,6 +106,7 @@ The following tasks will guide the development process. Each task includes succe
 *   Coin Ratios: Silver (1pt, 10/11 spawn rate), Gold (5pts, 1/11 spawn rate).
 *   If you have any assumptions that require you to make a change, ask me before you proceed
 *   Coinbase Integration: Sub Accounts for children, tied to USDC balance. Power-ups via clicks (no shop UI).
+*   Prisma with MongoDB requires the MongoDB server to be run as a replica set to support transactions.
 
 ---
 This GDD-informed plan is now in `.cursor/scratchpad.md`. Please let me know when you're ready to switch to Executor mode and which task to begin with. 
