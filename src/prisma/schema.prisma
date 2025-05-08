@@ -29,6 +29,9 @@ model Account {
   currentAllowancePeriodSeconds Int?
   allowancePeriodStart        DateTime?
   allowanceSpentThisPeriodETH Float     @default(0)
+  
+  // Personal Best Score
+  personalBestScore         Int       @default(0)
 }
 
 // REMOVED SubAccount model

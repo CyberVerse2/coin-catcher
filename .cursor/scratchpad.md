@@ -76,7 +76,7 @@ The following tasks will guide the development process. Each task includes succe
         *   Success Criteria: Game loads at `/`. Old `/game` path is non-functional. Obsolete files/directory removed.
 *   [ ] **Task 11: Basic Testing Strategy & Implementation**
 *   [ ] **Task 12: Documentation - User Flows & API (Initial Draft)**
-*   [ ] **New Major Task: Implement Game Account Spending Limit Progress Bar**
+*   [x] **New Major Task: Implement Game Account Spending Limit Progress Bar**
     *   Description: Display a progress bar and textual information indicating how much of the game account's configured spending allowance (derived from `src/wagmi.ts` defaults) has been used within the current allowance period. This allowance persists across sessions and replenishes periodically.
     *   **Sub-Tasks:**
         1.  [x] **Define Allowance Constants:**
@@ -99,7 +99,7 @@ The following tasks will guide the development process. Each task includes succe
             *   Description: Endpoint to update cumulative spending for the current period.
             *   Action: Input `gameAccountAddress`, `amountSpentETH`. Fetch account, perform period reset. Validate `(spent + newSpend) <= limit`. If valid, increment `allowanceSpentThisPeriodETH`, save. Return success/error.
             *   Success Criteria: Spending recorded, validated against limit/period.
-        6.  [ ] **Modify Frontend: Power-Up Activation (`handleActivatePowerUp` in `src/app/page.tsx`):**
+        6.  [x] **Modify Frontend: Power-Up Activation (`handleActivatePowerUp` in `src/app/page.tsx`):**
             *   Description: Client-side pre-check and call to backend to record spend.
             *   Action: Before `sendTransaction`, check if `(spent + cost) > limit`. If so, alert & return. After `sendTransaction` submits, call `POST /api/account/record-spend`.
 
@@ -117,7 +117,7 @@ The following tasks will guide the development process. Each task includes succe
     *   [x] **Task 7.3: Implement User Record Sync on Connect** (Simplified to game account setup flow with username)
 *   [x] **Task 8: Dynamic In-Game Currency Management** (Frontend display of ETH-derived coins complete; DB sync attempt reverted)
 *   [x] **Task 9: Power-Up System - Basic Implementation (Frontend Focus)** (Initial effects and on-chain transaction logic implemented)
-*   [ ] **Task 10: UI/UX Polish based on GDD (Initial Pass)**
+*   [x] **Task 10: UI/UX Polish based on GDD (Initial Pass)**
     *   [x] 3-2-1 Countdown timer implemented.
     *   [x] **Fix Power-up UI Visibility and Linter Error**
         *   Description: Modify `GamePage.tsx` so the power-ups display area is always visible (when the user is connected and account setup is complete), regardless of `gameState`. Individual power-up buttons will disable themselves based on `gameState === === 'running'`. Power-ups section now visible when `gameState` is 'idle' or 'running', hidden when 'gameOver'. Linter error resolved.
@@ -130,7 +130,7 @@ The following tasks will guide the development process. Each task includes succe
         *   Success Criteria: Game loads at `/`. Old `/game` path is non-functional. Obsolete files/directory removed.
 *   [ ] **Task 11: Basic Testing Strategy & Implementation**
 *   [ ] **Task 12: Documentation - User Flows & API (Initial Draft)**
-*   [ ] **New Major Task: Implement Game Account Spending Limit Progress Bar**
+*   [x] **New Major Task: Implement Game Account Spending Limit Progress Bar**
     *   Description: Display a progress bar and textual information indicating how much of the game account's configured spending allowance (derived from `src/wagmi.ts` defaults) has been used within the current allowance period. This allowance persists across sessions and replenishes periodically.
     *   **Sub-Tasks:**
         1.  [x] **Define Allowance Constants:**
@@ -153,9 +153,59 @@ The following tasks will guide the development process. Each task includes succe
             *   Description: Endpoint to update cumulative spending for the current period.
             *   Action: Input `gameAccountAddress`, `amountSpentETH`. Fetch account, perform period reset. Validate `(spent + newSpend) <= limit`. If valid, increment `allowanceSpentThisPeriodETH`, save. Return success/error.
             *   Success Criteria: Spending recorded, validated against limit/period.
-        6.  [ ] **Modify Frontend: Power-Up Activation (`handleActivatePowerUp` in `src/app/page.tsx`):**
+        6.  [x] **Modify Frontend: Power-Up Activation (`handleActivatePowerUp` in `src/app/page.tsx`):**
             *   Description: Client-side pre-check and call to backend to record spend.
             *   Action: Before `sendTransaction`, check if `(spent + cost) > limit`. If so, alert & return. After `sendTransaction` submits, call `POST /api/account/record-spend`.
+*   [ ] **New Major Task: Celebrate New Personal High Score**
+    *   Description: Detect when a player surpasses their previous personal best score and provide visual feedback on the game over screen.
+    *   **Sub-Tasks:**
+        1.  [x] **Update Prisma Schema (`Account` model):**
+            *   Description: Add a field to store the personal best score for the account.
+            *   Action: Add `personalBestScore: Int @default(0)` to the `Account` model in `src/prisma/schema.prisma`. Run `prisma db push` & `prisma generate`.
+            *   Success Criteria: Schema updated, Prisma client regenerated. `personalBestScore` field exists with a default of 0.
+        2.  [ ] **Modify Backend API: High Score Submission (`POST /api/highscore`):**
+            *   Description: Compare submitted score with `personalBestScore`, update if needed, and return flag in response.
+            *   Action: Fetch Account. If `submittedScore > account.personalBestScore`, set `newPersonalBest = true` and update Account. Return `{ ..., newPersonalBest: true/false }`.
+*   [x] **New Major Task: Accessibility Review - Color Contrast**
+    *   Description: Analyze and improve color contrast throughout the `GamePage` to ensure better accessibility and a more visually coherent theme.
+    *   **Sub-Tasks (Initial Findings & Plan):**
+        1.  [x] **Canvas Elements:**
+            *   Issue: Silver coins (`#C0C0C0`) on light gray canvas background (`#f0f0f0`) may have insufficient contrast.
+            *   Plan:
+                *   Verify contrast ratio using an online tool.
+                *   If insufficient, explore options:
+                    *   Darken silver coin color slightly.
+                    *   Add a subtle dark outline to coins.
+                    *   Slightly adjust canvas background color.
+                *   Goal: Achieve WCAG AA for non-text contrast.
+        2.  [x] **Power-Up Button Text & States:**
+            *   Issue: Default text color (inherited black/`text-gray-700`) on `bg-blue-100`.
+            *   Issue: "Active" state text (`text-green-700`) on `bg-green-200`.
+            *   Issue: Cost text (`text-gray-600`) on `bg-blue-100` or `bg-red-200`.
+            *   Plan:
+                *   Verify all text/background combinations within power-up buttons.
+                *   Adjust text colors (e.g., to a darker gray or black) or background shades to meet WCAG AA for text.
+                *   Ensure disabled states also maintain readability (Tailwind's `opacity-50` might reduce contrast too much on already lighter colors).
+        3.  [x] **Informational Text (Gray Text):**
+            *   Issue: `text-gray-500` used for EOA/Game Account details, allowance reset information, and various loading/status messages on default light background. This shade is often too light.
+            *   Plan:
+                *   Verify contrast.
+                *   Change `text-gray-500` to a darker shade like `text-gray-700` or `text-gray-800` for these elements.
+        4.  [x] **Error Text (Red Text):**
+            *   Issue: Standard Tailwind `text-red-500`. While often okay, it's good practice to confirm.
+            *   Plan:
+                *   Verify `text-red-500` on the page background using a contrast checker.
+                *   If needed, switch to a darker red like `text-red-600` or `text-red-700`.
+        5.  [x] **Disabled Button with Opacity:**
+            *   Issue: Connecting button (`bg-gray-500 text-white opacity-50`). Opacity reduces effective contrast.
+            *   Plan:
+                *   Calculate effective contrast with opacity.
+                *   If too low, consider alternatives: using a different disabled style that doesn't rely solely on opacity (e.g., lighter background, grayer text, but ensuring these also have sufficient contrast).
+        6.  [x] **General Review & Thematic Consistency:**
+            *   Plan:
+                *   Systematically review all interactive elements and text for WCAG AA compliance.
+                *   Ensure color choices enhance the "Coin Catcher" theme (e.g., using metallic sheens, gem-like colors for highlights if appropriate, while maintaining accessibility).
+                *   Document final color palette decisions.
 
 ## Current Status / Progress Tracking
 
@@ -219,7 +269,7 @@ The following tasks will guide the development process. Each task includes succe
 *   Backend `/api/subaccount` updated for the new logic.
 *   Awaiting user testing of the automatic subaccount setup and default selection.
 *   Coinbase's `wallet_addSubAccount` used with parent EOA key appears deterministic, likely generating one primary subaccount per parent/app context. Manual creation of multiple distinct subaccounts might require different SDK approaches (e.g., different keys, salts if supported).
-*   Linter errors regarding type comparisons in conditional rendering (e.g., `A === 'val1'` inside a block that only renders if `A === 'val2'`) often indicate a logic flaw where the outer condition makes the inner check redundant or impossible. Revise the component's visibility logic or the inner check.
+*   Linter errors regarding type comparisons in conditional rendering (e.g., `A === === 'val1'` inside a block that only renders if `A === === 'val2'`) often indicate a logic flaw where the outer condition makes the inner check redundant or impossible. Revise the component's visibility logic or the inner check.
 
 ---
 This GDD-informed plan is now in `.cursor/scratchpad.md`. Please let me know when you're ready to switch to Executor mode and which task to begin with. 

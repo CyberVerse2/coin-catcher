@@ -6,6 +6,7 @@ import { formatEther, parseEther } from 'viem';
 import Leaderboard from '@/components/Leaderboard';
 import { Account as PrismaAccount } from '@prisma/client'; // Import the generated type
 import { useModal } from '@/contexts/modal-context';
+import CopyableAddress from '@/components/CopyableAddress'; // Import the new component
 
 // Constants
 const CANVAS_WIDTH = 800;
@@ -936,6 +937,12 @@ const GamePage = () => {
     return () => clearInterval(interval);
   }, [activePowerUps]);
 
+  // Function to return to idle state from Game Over
+  const handleBackToMenu = () => {
+    setGameState('idle');
+    setSubmissionStatus('idle'); // Reset submission status too
+  };
+
   // Render Logic
   const renderContent = () => {
     if (accountStatus === 'disconnected' || accountStatus === 'connecting' || accountStatus === 'reconnecting') {
@@ -983,12 +990,13 @@ const GamePage = () => {
           className="relative z-10 mb-4" // Container for canvas and overlays
           style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}
         >
-          {/* Display the game account being used */}
+          {/* Display the game account being used - REMOVED to avoid blocking canvas elements 
           {gameAccountAddress && (
-            <div className="absolute top-2 left-2 text-xs text-gray-500 bg-white p-1 rounded shadow z-20">
-              Game Account: {gameAccountAddress.substring(0, 6)}...{gameAccountAddress.substring(gameAccountAddress.length - 4)}
+            <div className="absolute top-2 left-2 text-xs bg-white p-1 rounded shadow z-20">
+              <CopyableAddress address={gameAccountAddress} label="Game Account:" />
             </div>
           )}
+          */}
 
           <canvas ref={canvasRef} className="border border-gray-300 rounded-lg shadow-md" />
           
@@ -1025,33 +1033,48 @@ const GamePage = () => {
                textAlign: 'center',
                flexDirection: 'column', 
                zIndex: 40,
-               pointerEvents: 'auto'
+               pointerEvents: 'auto',
+               background: 'rgba(0,0,0,0.7)'
            }}>
               <h2 style={{ fontSize: '40px', margin: '0 0 10px 0' }}>Game Over!</h2>
               <p style={{ fontSize: '30px', margin: '0 0 30px 0' }}>Final Score: {scoreRef.current}</p>
               
               {/* Score Submission UI - Automatic now */}
               <div style={{ marginTop: '20px', minHeight: '25px' /* space for messages */ }}>
-                  {scoreRef.current > 0 && submissionStatus === 'pending' && <p style={{ color: 'yellow' }}>Submitting score...</p>}
-                  {scoreRef.current > 0 && submissionStatus === 'success' && <p style={{ color: 'lime' }}>Score submitted!</p>}
-                  {scoreRef.current > 0 && submissionStatus === 'error' && <p style={{ color: 'red' }}>Failed to submit score.</p>}
+                  {scoreRef.current > 0 && submissionStatus === 'pending' && <p style={{ color: 'white' }}>Submitting score...</p>}
+                  {scoreRef.current > 0 && submissionStatus === 'success' && <p style={{ color: 'white' }}>Score submitted!</p>}
+                  {scoreRef.current > 0 && submissionStatus === 'error' && <p style={{ color: 'white' }}>Failed to submit score.</p>}
                   {scoreRef.current <= 0 && gameState === 'gameOver' && submissionStatus !== 'success' &&  (
-                       <p style={{ color: 'grey' }}>No score to submit.</p>
+                       <p style={{ color: 'white' }}>No score to submit.</p>
                   )}
               </div>
               
-              <button 
-                  onClick={playAgain} 
-                  style={{ 
-                      padding: '15px 30px', 
-                      fontSize: '20px', 
-                      marginTop: '30px',
-                      pointerEvents: 'auto'
-                  }}
-                  disabled={showWelcomeModal || submissionStatus === 'pending'} // Disable Play Again if submitting or modal visible
-               >
-                  Play Again?
-              </button>
+              <div className="flex space-x-4 mt-8"> {/* Container for buttons */}
+                <button 
+                    onClick={handleBackToMenu} 
+                    className="bg-blue-500 hover:bg-blue-700 text-white font-bold rounded"
+                    style={{ 
+                        padding: '15px 30px', 
+                        fontSize: '20px', 
+                        pointerEvents: 'auto'
+                    }}
+                    disabled={showWelcomeModal || submissionStatus === 'pending'} 
+                >
+                    Main Menu
+                </button>
+                <button 
+                    onClick={playAgain} 
+                    className="bg-green-500 hover:bg-green-700 text-white font-bold rounded" 
+                    style={{ 
+                        padding: '15px 30px', 
+                        fontSize: '20px', 
+                        pointerEvents: 'auto'
+                    }}
+                    disabled={showWelcomeModal || submissionStatus === 'pending'} 
+                >
+                    Play Again?
+                </button>
+              </div>
           </div>
           )}
 
@@ -1083,7 +1106,7 @@ const GamePage = () => {
                        >
                           {isSavingUsername ? 'Saving...' : 'Save Name & Continue'}
                       </button>
-                      {usernameSaveError && <p style={{ color: 'red', marginTop: '15px' }}>{usernameSaveError}</p>}
+                      {usernameSaveError && <p className="text-red-600 mt-4">{usernameSaveError}</p>}
                    </div>
                </div>
           )}
@@ -1167,7 +1190,7 @@ const GamePage = () => {
             )}
             {(accountStatus === 'connecting' || accountStatus === 'reconnecting') && (
                 <button 
-                    className="bg-gray-500 text-white font-bold py-2 px-4 rounded opacity-50 cursor-not-allowed"
+                    className="bg-gray-600 text-white font-bold py-2 px-4 rounded cursor-not-allowed"
                     disabled
                 >
                     {accountStatus === 'connecting' ? 'Connecting...' : 'Reconnecting...'}
@@ -1177,13 +1200,13 @@ const GamePage = () => {
       </div>
       
       {/* Account Info Area */}
-      <div className="w-full max-w-4xl mb-4 text-xs text-gray-500 flex justify-between items-start">
+      <div className="w-full max-w-4xl mb-4 text-xs text-gray-700 flex justify-between items-start">
         <div>
-          {parentEoaAddress && <p>Parent EOA: {parentEoaAddress}</p>}
+          {parentEoaAddress && <CopyableAddress address={parentEoaAddress} label="Parent EOA:" />}
           {gameAccountAddress && (
-            <p className="mt-1">
-              Game Account: {gameAccountAddress.substring(0, 6)}...{gameAccountAddress.substring(gameAccountAddress.length - 4)}
-            </p>
+            <div className="mt-1"> {/* Added a little margin-top for spacing */}
+              <CopyableAddress address={gameAccountAddress} label="Game Account:" />
+            </div>
           )}
         </div>
         
