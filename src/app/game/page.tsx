@@ -74,17 +74,27 @@ const GamePage = () => {
 
   // Effect to set default selected address
   useEffect(() => {
+    console.log('[Account Selection Effect] Running. Status:', accountStatus);
+    console.log('[Account Selection Effect] Wagmi EOA (address hook):', address); // Renamed log for clarity
+    console.log('[Account Selection Effect] All addresses (addresses hook):', addresses);
+
     if (accountStatus === 'connected' && addresses && addresses.length > 0) {
-      // Prefer the main EOA (address) if available, otherwise first in list
-      if (address && addresses.includes(address)) {
-        setSelectedAddress(address);
+      const mainEoaFromAddresses = addresses[addresses.length - 1];
+      console.log('[Account Selection Effect] Deduced Main EOA from addresses array (last item):', mainEoaFromAddresses);
+      
+      if (mainEoaFromAddresses) { // Ensure it exists
+        console.log('[Account Selection Effect] Setting selected address to Deduced Main EOA:', mainEoaFromAddresses);
+        setSelectedAddress(mainEoaFromAddresses);
       } else {
-        setSelectedAddress(addresses[0]);
+        // Fallback if addresses array is strange (e.g., empty after check, though unlikely here)
+        console.log('[Account Selection Effect] Could not deduce Main EOA. Defaulting to addresses[0]:', addresses[0]);
+        setSelectedAddress(addresses[0]); 
       }
     } else {
+      console.log('[Account Selection Effect] Conditions not met for setting address, or disconnecting. Clearing selected address.');
       setSelectedAddress(undefined);
     }
-  }, [accountStatus, address, addresses]);
+  }, [accountStatus, address, addresses]); // Keep `address` in dependency array for now, though not directly used for selection logic
 
   // Main game loop and event listeners effect
   useEffect(() => {
@@ -401,7 +411,7 @@ const GamePage = () => {
 
     // Wallet Connected State
     return (
-      <div className="relative">
+      <div className="relative z-10">
         {/* Account Selection Dropdown */}
         {addresses && addresses.length > 0 && (
           <div className="absolute top-2 left-2 z-50 bg-white p-2 rounded shadow">
@@ -413,19 +423,23 @@ const GamePage = () => {
               disabled={gameState === 'running'}
               className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
             >
-              {addresses.map((addr) => (
-                <option key={addr} value={addr}>
-                  {addr === address ? `Main (${addr.substring(0, 6)}...${addr.substring(addr.length - 4)})` : `Sub (${addr.substring(0, 6)}...${addr.substring(addr.length - 4)})`}
-                </option>
-              ))}
+              {addresses && addresses.map((addr) => {
+                const mainEoaFromAddresses = addresses[addresses.length - 1];
+                const isMain = addr === mainEoaFromAddresses;
+                return (
+                  <option key={addr} value={addr}>
+                    {isMain ? `Main (${addr.substring(0, 6)}...${addr.substring(addr.length - 4)})` : `Sub (${addr.substring(0, 6)}...${addr.substring(addr.length - 4)})`}
+                  </option>
+                );
+              })}
             </select>
           </div>
         )}
 
         <canvas ref={canvasRef} className="border border-gray-300 rounded-lg shadow-md" />
         {gameState === 'idle' && (
-          <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 40 }}>
-            <button onClick={startGame} style={{ padding: '20px 40px', fontSize: '24px' }}>Start Game</button>
+          <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 40, pointerEvents: 'none' }}>
+            <button onClick={startGame} style={{ padding: '20px 40px', fontSize: '24px', pointerEvents: 'auto' }}>Start Game</button>
           </div>
         )}
         {gameState === 'gameOver' && (
@@ -437,14 +451,15 @@ const GamePage = () => {
              color: 'white', 
              textAlign: 'center',
              flexDirection: 'column', 
-             zIndex: 40
+             zIndex: 40,
+             pointerEvents: 'none'
          }}>
             <h2 style={{ fontSize: '40px', margin: '0 0 10px 0' }}>Game Over!</h2>
             <p style={{ fontSize: '30px', margin: '0 0 30px 0' }}>Final Score: {score}</p>
             
             {/* Score Submission Form */} 
             {submissionStatus !== 'success' && score > 0 && (
-                <div style={{ marginTop: '20px' }}>
+                <div style={{ marginTop: '20px', pointerEvents: 'auto' }}>
                     <input 
                         type="text"
                         value={playerName}
@@ -464,14 +479,15 @@ const GamePage = () => {
                     {submissionStatus === 'error' && <p style={{ color: 'red', marginTop: '10px' }}>Failed to submit score.</p>}
                 </div>
             )}
-            {submissionStatus === 'success' && <p style={{ color: 'lime', marginTop: '10px' }}>Score submitted!</p>}
+            {submissionStatus === 'success' && <p style={{ color: 'lime', marginTop: '10px', pointerEvents: 'auto' }}>Score submitted!</p>}
             
             <button 
                 onClick={playAgain} 
                 style={{ 
                     padding: '15px 30px', 
                     fontSize: '20px', 
-                    marginTop: '30px' // Add margin above play again button
+                    marginTop: '30px',
+                    pointerEvents: 'auto'
                 }}
              >
                 Play Again?

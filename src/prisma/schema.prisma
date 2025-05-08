@@ -26,6 +26,7 @@ model SubAccount {
   parent              User      @relation("ParentToSubAccounts", fields: [parentId], references: [id])
   username            String    // Username for the child/subaccount
   subAccountAddress   String    @unique // Blockchain address of the subaccount (e.g., from Coinbase)
+  allocatedCoins      Int       @default(0) // In-game coins allocated by the parent
   spendingLimitAmount Float     // The spending limit in a base currency unit (e.g., USDC value).
   spendingLimitInterval SpendingLimitInterval // e.g., WEEKLY, DAILY
   highScores          HighScore[] @relation("SubAccountScores") // High scores achieved by this subaccount
