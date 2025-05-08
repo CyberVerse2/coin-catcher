@@ -59,6 +59,11 @@ const GamePage = () => {
   // Determine parent EOA from addresses list
   const parentEoaAddress = accountStatus === 'connected' && addresses && addresses.length > 0 ? addresses[addresses.length - 1] : undefined;
   
+  // Fetch parent EOA ETH balance
+  const { data: balanceData, isLoading: isBalanceLoading, error: balanceError } = useBalance({
+    address: parentEoaAddress,
+  });
+  
   // Game State Refs and State
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [gameState, setGameState] = useState<GameState>('idle');
@@ -93,7 +98,27 @@ const GamePage = () => {
   // New state to track if account setup (username choice) is pending/complete
   const [isAccountSetupComplete, setIsAccountSetupComplete] = useState<boolean>(false);
 
+  // State for player's game coins derived from ETH balance
+  const [playerGameCoins, setPlayerGameCoins] = useState<number>(0);
+
   const COIN_PRICE_IN_ETH = 0.000525; // Ensure this is correctly placed
+
+  // Effect to calculate game coins from ETH balance
+  useEffect(() => {
+    if (balanceData) {
+      try {
+        const ethValue = parseFloat(formatEther(balanceData.value));
+        const calculatedGameCoins = Math.floor(ethValue / COIN_PRICE_IN_ETH);
+        setPlayerGameCoins(calculatedGameCoins);
+        console.log(`ETH Balance: ${ethValue}, Game Coins: ${calculatedGameCoins}`);
+      } catch (e) {
+        console.error("Error calculating game coins from ETH balance:", e);
+        setPlayerGameCoins(0); // Default to 0 on error
+      }
+    } else {
+      setPlayerGameCoins(0); // Default to 0 if no balance data
+    }
+  }, [balanceData]); // Re-run when balanceData changes
 
   // Sync coins state to ref
   useEffect(() => {
@@ -690,42 +715,59 @@ const GamePage = () => {
 
   return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', flexDirection: 'column', textAlign: 'center', padding: '20px' }}>
-      <div className="flex justify-between items-center w-full max-w-4xl mb-4">
+      <div className="flex justify-between items-center w-full max-w-4xl mb-1">
         <h1 className="text-3xl font-bold">Coin Catcher</h1>
-        { /* Connect/Disconnect Button */}
-        {accountStatus === 'connected' && (
-            <button 
-                onClick={() => disconnect()}
-                className="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded"
-            >
-                Disconnect
-            </button>
-        )}
-         {accountStatus === 'disconnected' && (
-            <button 
-                onClick={() => {
-                    const coinbaseConnector = connectors.find(c => c.name === 'Coinbase Wallet');
-                    if (coinbaseConnector) {
-                        connect({ connector: coinbaseConnector });
-                    }
-                 }}
-                className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
-            >
-                Connect Wallet
-            </button>
-        )}
-        {(accountStatus === 'connecting' || accountStatus === 'reconnecting') && (
-             <button 
-                className="bg-gray-500 text-white font-bold py-2 px-4 rounded opacity-50 cursor-not-allowed"
-                disabled
-            >
-                {accountStatus === 'connecting' ? 'Connecting...' : 'Reconnecting...'}
-            </button>
-        )}
+        <div className="flex items-center space-x-4">
+            {/* Display Player Game Coins */}
+            {accountStatus === 'connected' && parentEoaAddress && (
+                <div className="text-sm text-gray-700 bg-gray-100 p-2 rounded shadow">
+                    {isBalanceLoading && <span>Loading balance...</span>}
+                    {balanceError && <span className="text-red-500">Balance error</span>}
+                    {!isBalanceLoading && !balanceError && balanceData && (
+                        <span>🪙 Game Coins: {playerGameCoins}</span>
+                    )}
+                </div>
+            )}
+            { /* Connect/Disconnect Button */}
+            {accountStatus === 'connected' && (
+                <button 
+                    onClick={() => disconnect()}
+                    className="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded"
+                >
+                    Disconnect
+                </button>
+            )}
+            {accountStatus === 'disconnected' && (
+                <button 
+                    onClick={() => {
+                        const coinbaseConnector = connectors.find(c => c.name === 'Coinbase Wallet');
+                        if (coinbaseConnector) {
+                            connect({ connector: coinbaseConnector });
+                        }
+                    }}
+                    className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                >
+                    Connect Wallet
+                </button>
+            )}
+            {(accountStatus === 'connecting' || accountStatus === 'reconnecting') && (
+                <button 
+                    className="bg-gray-500 text-white font-bold py-2 px-4 rounded opacity-50 cursor-not-allowed"
+                    disabled
+                >
+                    {accountStatus === 'connecting' ? 'Connecting...' : 'Reconnecting...'}
+                </button>
+            )}
+        </div>
+      </div>
+      <div className="w-full max-w-4xl mb-4 text-xs text-gray-500">
+        {parentEoaAddress && <p>Parent EOA: {parentEoaAddress}</p>}
       </div>
       {renderContent()}
-      {/* Render Leaderboard below the game content */}
-      { accountStatus === 'connected' && isAccountSetupComplete && <Leaderboard />}
+      {/* Render Leaderboard below the game content, ensure it can take full width needed */}
+      <div className="w-full flex justify-center">
+        { accountStatus === 'connected' && isAccountSetupComplete && <Leaderboard />}
+      </div>
     </div>
   );
 };

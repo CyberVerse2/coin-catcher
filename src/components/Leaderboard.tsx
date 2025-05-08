@@ -49,20 +49,20 @@ const Leaderboard = () => {
   }
 
   return (
-    <div className="w-full max-w-md mx-auto mt-8 p-4 bg-gray-50 rounded-lg shadow">
+    <div className="w-full max-w-2xl mx-auto mt-8 p-4 bg-gray-50 rounded-lg shadow">
       <h2 className="text-2xl font-bold text-center mb-6 text-gray-700">Leaderboard</h2>
-      <ul className="space-y-3">
+      <ul className="space-y-2">
         {highScores.map((entry, index) => (
           <li 
-            key={`${entry.userName}-${entry.score}-${index}`} // A more robust key using available data + index
-            className="flex justify-between items-center p-3 bg-white rounded shadow-sm hover:bg-gray-100 transition-colors"
+            key={`${entry.userName}-${entry.score}-${index}`}
+            className="flex justify-between items-center p-2 bg-white rounded shadow-sm hover:bg-gray-100 transition-colors"
           >
-            <div className="flex items-center">
-              <span className="text-lg font-semibold text-gray-600 mr-3 w-8 text-center">{index + 1}.</span>
+            <div className="flex items-center flex-grow pr-2">
+              <span className="text-lg font-semibold text-gray-600 mr-3 w-8 text-center shrink-0">{index + 1}.</span>
               <span className="text-lg text-gray-800 truncate" title={entry.userName}>{entry.userName}</span>
             </div>
-            <div className="flex flex-col items-end min-w-[120px]">
-                <span className="text-xl font-bold text-blue-600 mb-0.5">{entry.score} pts</span>
+            <div className="flex flex-col items-end min-w-[150px] shrink-0">
+                <span className="text-xl font-bold text-blue-600 mb-0.5 pr-2">{entry.score} pts</span>
                 <span className="text-xs text-gray-500 whitespace-nowrap">
                     {new Date(entry.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'numeric', day: 'numeric' })} - {new Date(entry.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
