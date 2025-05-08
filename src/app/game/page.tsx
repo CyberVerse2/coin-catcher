@@ -1,7 +1,8 @@
 'use client'
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { useAccount, useConnect, useDisconnect } from 'wagmi';
+import { useAccount, useConnect, useDisconnect, useWalletClient, useBalance } from 'wagmi';
+import { formatEther } from 'viem';
 
 // Constants
 const CANVAS_WIDTH = 800;
@@ -39,11 +40,20 @@ interface Coin {
 
 let nextCoinId = 0;
 
+// Define the expected response structure for wallet_addSubAccount
+interface AddSubAccountResponse {
+  address: string;
+  chainId?: string; // Hex
+  factory?: string; // Address
+  factoryData?: string; // Hex
+}
+
 const GamePage = () => {
   // Wagmi Hooks
-  const { address, addresses, status: accountStatus } = useAccount(); // Added 'addresses'
+  const { address, addresses, status: accountStatus } = useAccount();
   const { connectors, connect, error: connectError, status: connectStatus } = useConnect();
   const { disconnect } = useDisconnect();
+  const { data: walletClient } = useWalletClient();
 
   // State for selected address
   const [selectedAddress, setSelectedAddress] = useState<string | undefined>(undefined);
@@ -67,6 +77,21 @@ const GamePage = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionStatus, setSubmissionStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
+  // State for Subaccount Creation UI
+  const [subAccountNameInput, setSubAccountNameInput] = useState('');
+  const [subAccountAllocationInput, setSubAccountAllocationInput] = useState(50); // Default to 50 coins
+  const [isCreatingSubAccount, setIsCreatingSubAccount] = useState(false);
+  const [subAccountCreationError, setSubAccountCreationError] = useState<string | null>(null);
+
+  // Parent's balance and max allocable coins for subaccounts
+  const [parentMaxAllocableCoins, setParentMaxAllocableCoins] = useState(100); // Default to 100, will be updated
+  const parentEoaAddress = accountStatus === 'connected' && addresses && addresses.length > 0 ? addresses[addresses.length - 1] : undefined;
+  const { data: parentBalanceData, isLoading: isLoadingParentBalance } = useBalance({
+    address: parentEoaAddress, // Fetch balance for the calculated parent EOA
+  });
+
+  const COIN_PRICE_IN_ETH = 0.000525;
+
   // Sync state to ref
   useEffect(() => {
     coinsRef.current = coins;
@@ -82,11 +107,10 @@ const GamePage = () => {
       const mainEoaFromAddresses = addresses[addresses.length - 1];
       console.log('[Account Selection Effect] Deduced Main EOA from addresses array (last item):', mainEoaFromAddresses);
       
-      if (mainEoaFromAddresses) { // Ensure it exists
+      if (mainEoaFromAddresses) { 
         console.log('[Account Selection Effect] Setting selected address to Deduced Main EOA:', mainEoaFromAddresses);
         setSelectedAddress(mainEoaFromAddresses);
       } else {
-        // Fallback if addresses array is strange (e.g., empty after check, though unlikely here)
         console.log('[Account Selection Effect] Could not deduce Main EOA. Defaulting to addresses[0]:', addresses[0]);
         setSelectedAddress(addresses[0]); 
       }
@@ -94,7 +118,30 @@ const GamePage = () => {
       console.log('[Account Selection Effect] Conditions not met for setting address, or disconnecting. Clearing selected address.');
       setSelectedAddress(undefined);
     }
-  }, [accountStatus, address, addresses]); // Keep `address` in dependency array for now, though not directly used for selection logic
+  }, [accountStatus, /* address, */ addresses]); // Removed address from deps as it was causing confusion, using addresses directly
+
+  // Effect to calculate parent's max allocable coins
+  useEffect(() => {
+    if (selectedAddress && parentEoaAddress && selectedAddress === parentEoaAddress && parentBalanceData) {
+      try {
+        const ethBalance = parseFloat(formatEther(parentBalanceData.value));
+        const maxCoins = Math.floor(ethBalance / COIN_PRICE_IN_ETH);
+        console.log(`Parent ETH Balance: ${ethBalance}, Max Allocable Coins: ${maxCoins}`);
+        setParentMaxAllocableCoins(maxCoins > 0 ? maxCoins : 0); // Ensure it's not negative
+
+        // Adjust current allocation if it exceeds new max, or if max is 0 and current is not
+        if (subAccountAllocationInput > maxCoins || (maxCoins === 0 && subAccountAllocationInput !== 0)) {
+          setSubAccountAllocationInput(maxCoins > 0 ? Math.min(subAccountAllocationInput, maxCoins) : 0);
+        }
+      } catch (e) {
+        console.error("Error calculating max allocable coins:", e);
+        setParentMaxAllocableCoins(0); // Fallback to 0 on error
+      }
+    } else if (selectedAddress && parentEoaAddress && selectedAddress !== parentEoaAddress) {
+      // If a subaccount is selected, reset max allocable to a sensible default (or hide UI)
+      setParentMaxAllocableCoins(100); // Or 0, depending on desired UX when non-parent is selected
+    }
+  }, [selectedAddress, parentEoaAddress, parentBalanceData, subAccountAllocationInput]);
 
   // Main game loop and event listeners effect
   useEffect(() => {
@@ -380,6 +427,127 @@ const GamePage = () => {
 
   const playAgain = () => { startGame(); };
 
+  const handleCreateSubAccount = async () => {
+    setIsCreatingSubAccount(true);
+    setSubAccountCreationError(null);
+    console.log('Attempting to create subaccount:');
+    console.log('Name:', subAccountNameInput);
+    console.log('Allocation:', subAccountAllocationInput);
+
+    if (!selectedAddress || !addresses || selectedAddress !== addresses[addresses.length - 1]) {
+      setSubAccountCreationError('Main account (EOA) must be selected to create subaccounts.');
+      setIsCreatingSubAccount(false);
+      return;
+    }
+
+    if (!subAccountNameInput.trim()) {
+        setSubAccountCreationError('Subaccount name cannot be empty.');
+        setIsCreatingSubAccount(false);
+        return;
+    }
+
+    const parentEoaAddress = selectedAddress; // This is the main EOA
+
+    try {
+        if (!walletClient) {
+            setSubAccountCreationError('Wallet client not available.');
+            setIsCreatingSubAccount(false);
+            return;
+        }
+
+        console.log('Calling wallet_addSubAccount with parent EOA:', parentEoaAddress);
+        // Actual SDK call
+        const subAccountSDKResponse = await walletClient.request({
+            method: 'wallet_addSubAccount',
+            params: [{
+                version: '1',
+                account: {
+                    type: 'create',
+                    keys: [{ type: 'address', key: parentEoaAddress as `0x${string}` }]
+                }
+            }]
+        } as any) as AddSubAccountResponse | null; // Cast request options to any, and response to expected type or null
+
+        // Type guard for the response structure
+        if (!subAccountSDKResponse || typeof subAccountSDKResponse.address !== 'string') {
+            console.error('Invalid or null response from wallet_addSubAccount:', subAccountSDKResponse);
+            setSubAccountCreationError('Failed to get subaccount address from wallet. The wallet might have denied the request or an unexpected error occurred.');
+            setIsCreatingSubAccount(false);
+            return;
+        }
+        const newSubAccountAddress = subAccountSDKResponse.address as string;
+        console.log('SDK returned new subaccount address:', newSubAccountAddress);
+        
+        // Now call our backend to save this subaccount
+        console.log('Calling backend /api/subaccount with:', {
+            parentWalletAddress: parentEoaAddress,
+            subAccountName: subAccountNameInput,
+            allocatedCoins: subAccountAllocationInput,
+            newSubAccountAddress: newSubAccountAddress,
+        });
+
+        const backendResponse = await fetch('/api/subaccount', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                parentWalletAddress: parentEoaAddress,
+                subAccountName: subAccountNameInput,
+                allocatedCoins: subAccountAllocationInput,
+                newSubAccountAddress: newSubAccountAddress,
+            }),
+        });
+
+        if (!backendResponse.ok) {
+            const errorData = await backendResponse.json();
+            // If subaccount address conflict, it might mean SDK succeeded but DB entry failed prior or is duplicated.
+            // Or user tried to create one with an address that somehow already exists from another context.
+            setSubAccountCreationError(`Backend Error: ${errorData.error || backendResponse.statusText || 'Failed to save subaccount'}`);
+            // Do not reset form here, allow user to see values and retry or change name if that was the issue.
+            setIsCreatingSubAccount(false);
+            return; // Stop execution on backend error
+        }
+
+        const savedSubAccount = await backendResponse.json();
+        console.log('Subaccount saved to backend:', savedSubAccount);
+
+        // Reset form and UI on full success (SDK + Backend)
+        setSubAccountNameInput('');
+        // Recalculate parent's max allocable coins and reset slider
+        // This logic is already in a useEffect, but we can be more direct here if parentBalanceData is available
+        if (parentBalanceData) {
+            try {
+                const ethBalance = parseFloat(formatEther(parentBalanceData.value));
+                const maxCoins = Math.floor(ethBalance / COIN_PRICE_IN_ETH);
+                setParentMaxAllocableCoins(maxCoins > 0 ? maxCoins : 0);
+                // After successful allocation, the actual available amount for *new* allocations decreases.
+                // For simplicity, we'll just reset the input to 0. A more advanced UI would show remaining allocable.
+                setSubAccountAllocationInput(0); 
+            } catch (e) {
+                console.error("Error refreshing parent max coins after subaccount creation:", e);
+                // Fallback, user might see stale max on slider until next balance update triggers useEffect
+            }
+        } else {
+             setSubAccountAllocationInput(0); // Default reset if balance data isn't immediately ready
+        }
+
+        alert(`Subaccount '${subAccountNameInput}' created successfully with address ${newSubAccountAddress} and ${subAccountAllocationInput} coins!`);
+        // TODO: Add this new subaccount to a list displayed in the UI for the parent.
+        // TODO: Update parent's displayed total allocated coins / available coins.
+
+    } catch (error: any) {
+        console.error('Error creating subaccount:', error);
+        let message = 'Failed to create subaccount.';
+        if (error.code === 4001) { // User rejected request
+            message = 'User rejected the request.';
+        }
+        setSubAccountCreationError(message);
+    }
+
+    setIsCreatingSubAccount(false);
+  };
+
   // Render Logic
   const renderContent = () => {
     if (accountStatus === 'disconnected') {
@@ -502,6 +670,48 @@ const GamePage = () => {
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', flexDirection: 'column', textAlign: 'center', padding: '20px' }}>
       <h1>Coin Catcher</h1>
       {renderContent()}
+
+      {/* Subaccount Creation Section - Only visible if parent EOA is selected */}
+      {accountStatus === 'connected' && addresses && addresses.length > 0 && selectedAddress === addresses[addresses.length - 1] && (
+        <div className="mt-8 p-6 border border-gray-300 rounded-lg shadow-md w-full max-w-md bg-gray-50">
+          <h2 className="text-xl font-semibold mb-4 text-gray-700">Create New Subaccount</h2>
+          <div className="mb-4">
+            <label htmlFor="subAccountName" className="block text-sm font-medium text-gray-700 text-left mb-1">Subaccount Name:</label>
+            <input 
+              type="text"
+              id="subAccountName"
+              value={subAccountNameInput}
+              onChange={(e) => setSubAccountNameInput(e.target.value)}
+              placeholder="Child's Name"
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+              disabled={isCreatingSubAccount}
+            />
+          </div>
+          <div className="mb-6">
+            <label htmlFor="subAccountAllocation" className="block text-sm font-medium text-gray-700 text-left mb-1">Allocate Coins (0-100): {subAccountAllocationInput}</label>
+            <input 
+              type="range"
+              id="subAccountAllocation"
+              min="0"
+              max={parentMaxAllocableCoins > 0 ? parentMaxAllocableCoins : 100}
+              value={subAccountAllocationInput}
+              onChange={(e) => setSubAccountAllocationInput(parseInt(e.target.value, 10))}
+              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
+              disabled={isCreatingSubAccount}
+            />
+          </div>
+          <button 
+            onClick={handleCreateSubAccount}
+            disabled={isCreatingSubAccount || !subAccountNameInput.trim()}
+            className="w-full bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline disabled:opacity-50"
+          >
+            {isCreatingSubAccount ? 'Creating...' : 'Create Subaccount'}
+          </button>
+          {subAccountCreationError && (
+            <p className="text-red-500 text-sm mt-3">{subAccountCreationError}</p>
+          )}
+        </div>
+      )}
     </div>
   );
 };

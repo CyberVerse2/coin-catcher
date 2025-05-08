@@ -2,7 +2,7 @@
 
 ## Background and Motivation
 
-Coin Catcher is a fast-paced browser game designed to be a secure, budget-controlled family gaming experience. Players catch falling silver and gold coins to earn points and climb leaderboards. A key feature is the currency model where 1 in-game coin equals 0.1 USDC. Each player starts with 100 coins. The game will leverage Coinbase Smart Wallet for users to create subaccounts for children, tied to their USDC balance, allowing for seamless on-chain allowances and power-up purchases without disruptive pop-ups. The tech stack includes Next.js for the frontend and backend API, Prisma as the ORM, and MongoDB as the database. The project aims to implement the features outlined in the provided Game Design Document (GDD).
+Coin Catcher is a fast-paced browser game designed to be a secure, budget-controlled family gaming experience. Players catch falling silver and gold coins to earn points and climb leaderboards. A key feature is the currency model where **1 in-game coin equals 0.000525 ETH**. Each player (parent user) derives their initial in-game coin balance from their connected wallet's ETH balance. The game will leverage Coinbase Smart Wallet for users to create subaccounts for children, tied to their parent's balance, allowing for seamless on-chain allowances and power-up purchases without disruptive pop-ups. The tech stack includes Next.js for the frontend and backend API, Prisma as the ORM, and MongoDB as the database. The project aims to implement the features outlined in the provided Game Design Document (GDD), with updated currency details.
 
 ## Key Challenges and Analysis
 
@@ -51,9 +51,9 @@ The following tasks will guide the development process. Each task includes succe
 
 8.  **Task 8: Dynamic In-Game Currency Management**
     *   Description:
-        *   Frontend: Display the player's dynamic "in-game coin" balance, derived from their USDC wallet balance (as established in Task 7; 0.1 USDC = 1 coin).
-        *   Backend: The `User` model's `coinBalance` field (Prisma) must be updated dynamically based on the fetched USDC wallet balance. This might involve fetching on demand or setting up listeners if feasible.
-    *   Success Criteria: User's in-game coin balance accurately reflects their USDC wallet holdings and is displayed correctly. The `coinBalance` in the database is managed/updated based on their wallet's USDC amount.
+        *   Frontend: Display the player's dynamic "in-game coin" balance, derived from their **ETH wallet balance using the 1 coin = 0.000525 ETH conversion rate.**
+        *   Backend: The `User` model's `coinBalance` field (Prisma) must be updated dynamically based on the fetched ETH wallet balance. This might involve fetching on demand or setting up listeners if feasible. For subaccounts, their balance is `SubAccount.allocatedCoins`.
+    *   Success Criteria: User's in-game coin balance accurately reflects their ETH wallet holdings and is displayed correctly. The `coinBalance` in the database for `User` is managed/updated. Subaccount balances are correctly displayed from `allocatedCoins`.
 
 9.  **Task 9: Power-Up System - Basic Implementation (Frontend Focus)**
     *   Description:
@@ -84,10 +84,15 @@ The following tasks will guide the development process. Each task includes succe
 *   [ ] **Task 7: User Authentication & Coinbase Smart Wallet Integration**
     *   [x] **Task 7.1: Implement Account Selection Dropdown**
     *   [ ] **Task 7.2: Implement Subaccount Creation & Coin Allocation** (Executor Mode)
-        *   [ ] **Schema:** Add `allocatedCoins Int @default(0)` to `SubAccount` model. (Applied, pending `db push` by user)
-        *   [ ] **Frontend UI (Parent View):** Design and implement UI.
-        *   [ ] **Coinbase SDK Interaction (Frontend/Backend):** Research and implement SDK flow for subaccount creation.
-        *   [ ] **Backend API (`POST /api/subaccount`):** Implement endpoint.
+        *   [x] **Schema:** Add `allocatedCoins Int @default(0)` to `SubAccount` model.
+        *   [ ] **Coinbase SDK Interaction (Frontend/Backend):** Researched `wallet_addSubAccount` RPC. Plan to use `walletClient.request`. No specific on-chain spend limit parameters will be passed to the SDK for now for this feature.
+        *   [ ] **Frontend UI (Parent View):** 
+            *   Implement UI for subaccount name and coin allocation slider.
+            *   **Fetch parent's ETH wallet balance and calculate max allocable coins based on 1 coin = 0.000525 ETH.**
+            *   **Adjust slider max value dynamically based on parent's calculated max coins.**
+            *   Display parent's available (unallocated) coins (deferred for now, focus on max slider value).
+        *   [ ] **Frontend Logic (Handle SDK Call & API):** Implement SDK call for `wallet_addSubAccount` and subsequent call to our backend.
+        *   [ ] **Backend API (`POST /api/subaccount`):** Implement endpoint. Validate allocation against parent's dynamically calculated max coins. Store `allocatedCoins`.
         *   [ ] **Frontend Logic (Post-Creation):** Update UI.
 *   [ ] **Task 8: Dynamic In-Game Currency Management**
 *   [ ] **Task 9: Power-Up System - Basic Implementation (Frontend Focus)**
@@ -111,6 +116,15 @@ The following tasks will guide the development process. Each task includes succe
 *   Added `allocatedCoins` field to `SubAccount` model in `src/prisma/schema.prisma`.
 *   User needs to run `npx prisma db push` to apply schema changes.
 *   Awaiting confirmation before proceeding to UI development and SDK research for subaccount creation.
+*   `npx prisma db push --schema=./src/prisma/schema.prisma` command successful.
+*   Researched Coinbase Wallet SDK's `wallet_addSubAccount` RPC method (EIP-7895).
+    *   Identified parameters: `[{ version: '1', account: { type: 'create', keys: [{ type: 'address', key: PARENT_EOA_ADDRESS }] } }]`.
+    *   Expected return: `{ address: NEW_SUBACCOUNT_ADDRESS, ... }`.
+    *   Plan to use `walletClient.request({ method: 'wallet_addSubAccount', params })` via Wagmi's `useWalletClient`.
+*   Ready to proceed with Frontend UI development for subaccount creation.
+*   Frontend UI for subaccount creation (name input, initial 0-100 slider, button) is implemented in `GamePage.tsx` and confirmed working by user (placeholder logic for button).
+*   **Clarifications received:** 1 coin = 0.000525 ETH. Subaccount spending limit is an in-game allocation rule (`SubAccount.allocatedCoins`), not an on-chain SDK-configured limit for this feature.
+*   Next step for Task 7.2: Fetch parent's ETH balance using `useBalance`, calculate max game coins, and update the allocation slider's max value dynamically.
 
 ## Lessons
 
@@ -119,14 +133,15 @@ The following tasks will guide the development process. Each task includes succe
 *   If there are vulnerabilities that appear in the terminal, run `npm audit` before proceeding.
 *   Always ask before using the `-force` git command.
 *   Tech Stack: Next.js, Prisma, MongoDB.
-*   Currency: 1 in-game coin = 0.1 USDC.
-*   Initial User Balance: 0 coins (dynamically derived from user's USDC wallet balance; 0.1 USDC = 1 coin).
+*   Currency: 1 in-game coin = 0.000525 ETH.
+*   Initial User Balance: 0 coins (dynamically derived from user's ETH wallet balance; 0.1 ETH = 1 coin).
 *   Coin Ratios: Silver (1pt, 10/11 spawn rate), Gold (5pts, 1/11 spawn rate).
 *   If you have any assumptions that require you to make a change, ask me before you proceed
-*   Coinbase Integration: Sub Accounts for children, tied to USDC. Power-ups via clicks (no shop UI).
+*   Coinbase Integration: Sub Accounts for children, tied to ETH. Power-ups via clicks (no shop UI).
 *   Prisma with MongoDB requires the MongoDB server to be run as a replica set to support transactions.
 *   Wagmi's `useAccount()` hook might return a subaccount as the main `address` if a subaccount is actively selected in the connected wallet (e.g. Coinbase Smart Wallet). The full list of accounts is in `addresses`. To reliably identify the EOA, assumptions about its position in the `addresses` array (e.g., last item) might be needed if `address` itself isn't the EOA.
 *   CSS `pointer-events: none` on an overlay can prevent it from capturing clicks, allowing interaction with elements underneath. `pointer-events: auto` can be used on child elements (like buttons on the overlay) to make them interactive again.
+*   Coinbase Wallet SDK provides `wallet_addSubAccount` (EIP-7895) for programmatically creating subaccounts. It can be called via `walletClient.request` (from Wagmi's `useWalletClient`). Parameters involve specifying account type (`create`) and owner keys.
 
 ---
 This GDD-informed plan is now in `.cursor/scratchpad.md`. Please let me know when you're ready to switch to Executor mode and which task to begin with. 
