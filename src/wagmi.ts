@@ -14,7 +14,7 @@ export function getConfig() {
           options: "smartWalletOnly",
         },
         subAccounts: {
-          enableAutoSubAccounts: false,
+          enableAutoSubAccounts: true,
           defaultSpendLimits: {
             84532: [
               {

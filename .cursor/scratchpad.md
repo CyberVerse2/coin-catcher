@@ -85,11 +85,11 @@ The following tasks will guide the development process. Each task includes succe
     *   [x] **Task 7.1: Implement Account Selection Dropdown**
     *   [ ] **Task 7.2: Implement Subaccount Creation & Coin Allocation** (Executor Mode)
         *   [x] **Schema:** Add `allocatedCoins Int @default(0)` to `SubAccount` model.
-        *   [x] **Coinbase SDK Interaction (Frontend/Backend):** Implemented `wallet_addSubAccount` via `walletClient.request`. Confirmed successful response and address retrieval (no user popup needed).
-        *   [x] **Frontend UI (Parent View):** Implemented UI. Fetches parent ETH balance, calculates max coins, updates slider.
-        *   [x] **Frontend Logic (Handle SDK Call & API):** Implemented SDK call for `wallet_addSubAccount` and call to `/api/subaccount` backend.
-        *   [x] **Backend API (`POST /api/subaccount`):** Implemented endpoint. Saves record to DB.
-        *   [ ] **Frontend Logic (Post-Creation):** Basic UI updates (alert, form reset). *Enhancements needed: Display existing subaccounts, update parent available balance display.*
+        *   [x] **Coinbase SDK Interaction (Frontend/Backend):** Implemented `wallet_addSubAccount` call.
+        *   [x] **Frontend UI (Parent View):** Manual creation UI removed.
+        *   [x] **Frontend Logic (Handle SDK Call & API):** Logic moved to automatic flow on connect.
+        *   [x] **Backend API (`POST /api/subaccount`):** Updated to set default name/allocation and return existing if found.
+        *   [x] **Frontend Logic (Post-Creation):** Logic moved to automatic flow.
     *   [x] **Task 7.3: Implement User Record Sync on Connect** (Executor Mode)
         *   [x] **Backend API (`POST /api/user/sync`):** Implemented using Prisma upsert.
         *   [x] **Frontend Logic (`GamePage.tsx`):** Calls `/api/user/sync` on parent EOA connect.
@@ -139,6 +139,15 @@ The following tasks will guide the development process. Each task includes succe
 *   The full flow (UI -> SDK -> Backend DB Save) for subaccount creation appears functional.
 *   Core logic for Task 7.2 is complete. UI enhancements (displaying subaccounts, available balance) remain.
 *   Awaiting user confirmation of final test and direction for the next task.
+*   **Pivoted approach:** Removed manual subaccount creation UI.
+*   Implemented automatic subaccount creation/ensurance flow:
+    1.  On parent connect, `/api/user/sync` ensures parent `User` exists.
+    2.  A subsequent effect calls `wallet_addSubAccount` SDK method.
+    3.  Calls `POST /api/subaccount` which now creates with fixed 100 coins / default name, or returns existing.
+    4.  The obtained subaccount address is set as the default `selectedAddress` for gameplay.
+*   Relevant state and effects in `GamePage.tsx` updated.
+*   Backend `/api/subaccount` updated for the new logic.
+*   Awaiting user testing of the automatic subaccount setup and default selection.
 
 ## Lessons
 
@@ -159,6 +168,7 @@ The following tasks will guide the development process. Each task includes succe
 *   Ensuring a `User` record exists in the DB (e.g., via an upsert API called on connect) is crucial before performing operations that rely on that user existing (like creating child subaccounts linked to a parent user ID).
 *   After modifying the Prisma schema and running `prisma db push` or `prisma generate`, it's often necessary to restart the application server (e.g., Next.js dev server) to ensure it uses the newly generated Prisma Client.
 *   Coinbase Smart Wallet's `wallet_addSubAccount` RPC (EIP-7895) may succeed and return a new subaccount address without an explicit user confirmation popup, streamlining the UX.
+*   Coinbase's `wallet_addSubAccount` used with parent EOA key appears deterministic, likely generating one primary subaccount per parent/app context. Manual creation of multiple distinct subaccounts might require different SDK approaches (e.g., different keys, salts if supported).
 
 ---
 This GDD-informed plan is now in `.cursor/scratchpad.md`. Please let me know when you're ready to switch to Executor mode and which task to begin with. 
