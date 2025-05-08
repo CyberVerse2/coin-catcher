@@ -11,49 +11,39 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id                 String       @id @default(auto()) @map("_id") @db.ObjectId
-  walletAddress      String       @unique // Primary wallet address of the user
-  coinBalance        Int          @default(0) // Derived from primary wallet's USDC balance (0.1 USDC = 1 coin)
-  createdAt          DateTime     @default(now())
-  highScores         HighScore[]  @relation("UserScores") // Scores achieved directly by this User
-  createdSubAccounts SubAccount[] @relation("ParentToSubAccounts") // Subaccounts created by this user
+// Renamed from User
+model Account {
+  id                  String       @id @default(auto()) @map("_id") @db.ObjectId
+  walletAddress       String       @unique // Stores the GAME account address (from SDK)
+  parentWalletAddress String?      // Stores the EOA that initiated creation (optional)
+  username            String       // Default username for the account
+  allocatedCoins      Int          @default(100) // Fixed allocation for game account
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt // Added updatedAt
+
+  // Relation to High Scores achieved by this account
+  highScores          HighScore[]  @relation("AccountScores") 
 }
 
-model SubAccount {
-  id                  String    @id @default(auto()) @map("_id") @db.ObjectId
-  parentId            String    @db.ObjectId // ID of the parent User
-  parent              User      @relation("ParentToSubAccounts", fields: [parentId], references: [id])
-  username            String    // Username for the child/subaccount
-  subAccountAddress   String    @unique // Blockchain address of the subaccount (e.g., from Coinbase)
-  allocatedCoins      Int       @default(0) // In-game coins allocated by the parent
-  spendingLimitAmount Float     // The spending limit in a base currency unit (e.g., USDC value).
-  spendingLimitInterval SpendingLimitInterval // e.g., WEEKLY, DAILY
-  highScores          HighScore[] @relation("SubAccountScores") // High scores achieved by this subaccount
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
-}
+// REMOVED SubAccount model
+// model SubAccount { ... }
 
 model HighScore {
   id            String     @id @default(auto()) @map("_id") @db.ObjectId
   score         Int
   createdAt     DateTime   @default(now())
+  userName      String     // Keep storing the name entered by the player at time of submission
 
-  // A HighScore belongs to EITHER a User OR a SubAccount
-  userId        String?    @db.ObjectId // Set if the score is by a User (parent)
-  user          User?      @relation("UserScores", fields: [userId], references: [id])
+  // Link to the Account that achieved the score
+  accountId     String     @db.ObjectId 
+  account       Account    @relation("AccountScores", fields: [accountId], references: [id])
 
-  subAccountId  String?    @db.ObjectId // Set if the score is by a SubAccount (child)
-  subAccount    SubAccount?@relation("SubAccountScores", fields: [subAccountId], references: [id])
-
-  // Application logic will need to ensure that for each HighScore,
-  // either userId OR subAccountId is populated, but not both.
-  // For leaderboard display, the name will be fetched from the related User or SubAccount.
+  // REMOVED userId/user and subAccountId/subAccount links
+  // userId        String?    @db.ObjectId 
+  // user          User?      @relation("UserScores", fields: [userId], references: [id])
+  // subAccountId  String?    @db.ObjectId
+  // subAccount    SubAccount?@relation("SubAccountScores", fields: [subAccountId], references: [id])
 }
 
-enum SpendingLimitInterval {
-  PER_SESSION
-  DAILY
-  WEEKLY
-  MONTHLY
-} 
+// REMOVED SpendingLimitInterval enum (was tied to SubAccount)
+// enum SpendingLimitInterval { ... } 
