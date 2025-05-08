@@ -75,7 +75,7 @@ const GamePage = () => {
   const animationFrameIdRef = useRef<number | null>(null);
   const [playerName, setPlayerName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submissionStatus, setSubmissionStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [submissionStatus, setSubmissionStatus] = useState<'idle' | 'pending' | 'success' | 'error'>('idle');
 
   // State for the single game account address (from SDK)
   const [gameAccountAddress, setGameAccountAddress] = useState<string | null>(null);
@@ -99,14 +99,17 @@ const GamePage = () => {
     coinsRef.current = coins;
   }, [coins]);
 
-  // Effect to get game account address via SDK when parent connects
+  // Effect to get game account address via SDK and then fetch account details from DB
   useEffect(() => {
-    const getGameAccountAddressFromSDK = async () => {
+    const setupGameAccount = async () => {
       if (accountStatus === 'connected' && parentEoaAddress && walletClient && !gameAccountAddress && !isSettingUpAccount && !isAccountSetupComplete) {
-        console.log('[Game Account Flow] Parent EOA connected. Getting game account address via SDK...');
+        console.log('[Game Account Flow] Parent EOA connected. Starting game account setup...');
         setIsSettingUpAccount(true);
         setGameAccountError(null);
+        let accountAddressFromSDK: string | null = null;
+
         try {
+          // 1. Get game account address from SDK
           console.log('[Game Account Flow] Calling SDK: wallet_addSubAccount for parent:', parentEoaAddress);
           const sdkResponse = await walletClient.request({
             method: 'wallet_addSubAccount',
@@ -122,49 +125,66 @@ const GamePage = () => {
           if (!sdkResponse || !sdkResponse.address) {
             throw new Error('Failed to get game account address from SDK (null or invalid response).');
           }
-          const accountAddressFromSDK = sdkResponse.address;
+          accountAddressFromSDK = sdkResponse.address;
           console.log('[Game Account Flow] Address received from SDK:', accountAddressFromSDK);
           setGameAccountAddress(accountAddressFromSDK);
-          // Do not sync account here anymore, modal will handle it if setup is not complete
-          // setShowWelcomeModal(true); // Trigger modal for setup if account not yet set up
-          setGameAccountError(null); 
+          setGameAccountError(null); // Clear SDK errors before DB check
+
+          // 2. Fetch account details from DB using the SDK address
+          console.log('[Game Account Flow] Fetching account details from DB for:', accountAddressFromSDK);
+          const response = await fetch(`/api/account?gameAccountAddress=${accountAddressFromSDK}`);
+          
+          if (response.ok) {
+            const account = await response.json();
+            console.log('[Game Account Flow] Account details from DB:', account);
+            setCurrentGameAccountUsername(account.username);
+            if (account.username && !account.username.startsWith('Player_')) {
+              console.log('[Game Account Flow] Existing user with non-default username. Setup complete.');
+              setIsAccountSetupComplete(true);
+              setShowWelcomeModal(false); // Ensure modal is hidden
+            } else {
+              console.log('[Game Account Flow] New user or default username. Setup pending (modal will show).');
+              setIsAccountSetupComplete(false);
+              // setShowWelcomeModal(true); // Let the other useEffect handle this based on isAccountSetupComplete
+            }
+          } else if (response.status === 404) {
+            console.log('[Game Account Flow] Account not found in DB. New user setup required (modal will show).');
+            setCurrentGameAccountUsername(null); // Ensure no stale username
+            setIsAccountSetupComplete(false);
+          } else {
+            // Other non-404 error from backend
+            const errorData = await response.json().catch(() => ({ error: 'Failed to parse error from account fetch' }));
+            throw new Error(errorData.error || `Failed to fetch account details (status: ${response.status})`);
+          }
+
         } catch (error: any) {
-          console.error('[Game Account Flow] Error getting game account address:', error);
+          console.error('[Game Account Flow] Error during game account setup:', error);
           let message = 'Failed to set up game account.';
-           if (error.code === 4001) { 
-               message = 'User rejected the wallet request.';
-           }
-           else if (error.message) {
-               message = error.message;
-           }
+          if (error.code === 4001) { // SDK user rejection
+            message = 'User rejected the wallet request.';
+          } else if (error.message) {
+            message = error.message;
+          }
           setGameAccountError(message);
           setGameAccountAddress(null); 
+          setIsAccountSetupComplete(false); // Ensure setup is marked incomplete on error
+          setCurrentGameAccountUsername(null);
         }
         setIsSettingUpAccount(false);
       }
     };
 
-    getGameAccountAddressFromSDK();
-  }, [accountStatus, parentEoaAddress, walletClient, gameAccountAddress, isSettingUpAccount, isAccountSetupComplete]);
+    setupGameAccount();
+  }, [accountStatus, parentEoaAddress, walletClient, gameAccountAddress, isSettingUpAccount, isAccountSetupComplete]); // Added isAccountSetupComplete to prevent re-running if already complete
 
   // Show Welcome Modal if game account is fetched but setup is not complete
   useEffect(() => {
     if (gameAccountAddress && !isAccountSetupComplete && !isSettingUpAccount && gameState === 'idle') {
-      // Check if we already have a username from a previous session for this game account, 
-      // to avoid showing modal if user reconnects and was already set up.
-      // This part needs a robust way to check. For now, if `currentGameAccountUsername` is null
-      // or default, and setup isn't complete, show modal.
-      // A more direct check against DB or local storage might be needed for persistence across sessions.
-      if (!currentGameAccountUsername || currentGameAccountUsername.startsWith('Player_')) {
-          console.log('Game account address available, but setup not complete. Showing Welcome Modal.');
-          setShowWelcomeModal(true);
-      } else {
-        // Username is already set and non-default, so consider setup complete
-        setIsAccountSetupComplete(true);
-        setShowWelcomeModal(false);
-      }
+      // This effect now primarily reacts to isAccountSetupComplete being false after the setupGameAccount effect has run.
+      console.log('Conditions met to show Welcome Modal (gameAddress present, setup incomplete, not currently setting up).');
+      setShowWelcomeModal(true);
     }
-  }, [gameAccountAddress, isAccountSetupComplete, isSettingUpAccount, currentGameAccountUsername, gameState]);
+  }, [gameAccountAddress, isAccountSetupComplete, isSettingUpAccount, gameState]);
 
   // Main game loop and event listeners effect
   useEffect(() => {
@@ -353,6 +373,18 @@ const GamePage = () => {
       });
       context.fillStyle = BASKET_COLOR;
       context.fillRect(basketX, basketTopY, BASKET_WIDTH, BASKET_HEIGHT);
+
+      // --- Draw HUD (Score, Timer, Missed Coins) ---
+      context.fillStyle = '#333333'; // Dark color for text
+      context.font = '24px Arial';
+      context.textAlign = 'left';
+      context.fillText(`Score: ${score}`, 20, 40);
+      context.textAlign = 'right';
+      context.fillText(`Time: ${timer}`, CANVAS_WIDTH - 20, 40);
+      context.textAlign = 'left'; // Reset for next text if any or keep consistent
+      context.fillText(`Missed: ${missedCoins}/${MAX_MISSED_COINS}`, 20, 70);
+      // --- End HUD Drawing ---
+
       // --- End Drawing --- 
 
       animationFrameIdRef.current = requestAnimationFrame(gameLoop);
@@ -381,7 +413,7 @@ const GamePage = () => {
 
   // Modified Start Game: Requires game account address
   const startGame = () => {
-    if (gameState === 'running' || !gameAccountAddress || !isAccountSetupComplete) { // Check for gameAccountAddress AND setup complete
+    if (gameState === 'running' || !gameAccountAddress || !isAccountSetupComplete) {
         console.log("Cannot start game. State:", gameState, "Game Account Address:", gameAccountAddress, "SetupComplete:", isAccountSetupComplete);
         if (isSettingUpAccount) {
             alert('Still setting up game account, please wait...');
@@ -389,13 +421,11 @@ const GamePage = () => {
             alert(`Cannot start game: ${gameAccountError}`);
         } else if (!isAccountSetupComplete) {
             alert('Please complete account setup (set username) before starting the game.');
-            setShowWelcomeModal(true); // Ensure modal is shown if setup is not complete
+            setShowWelcomeModal(true); 
         }
         return;
     }
     console.log("Starting game with account:", gameAccountAddress, "Username:", currentGameAccountUsername);
-    setSubmissionStatus('idle');
-    setPlayerName('');
     setScore(0);
     setMissedCoins(0);
     setTimer(GAME_DURATION_S);
@@ -404,27 +434,29 @@ const GamePage = () => {
     setBasketX(CANVAS_WIDTH / 2 - BASKET_WIDTH / 2);
     leftArrowPressed.current = false;
     rightArrowPressed.current = false;
-    actualLastSpawnOccasionTimeRef.current = 0;
+    actualLastSpawnOccasionTimeRef.current = 0; 
     lastTimerUpdateTimeRef.current = Date.now();
     gameStartTimeRef.current = Date.now();
+    setSubmissionStatus('idle');
     setGameState('running');
   };
 
-  // Modified Submit Score: Uses game account address, stores username
-  const submitHighScore = useCallback(async () => {
-    if (!isAccountSetupComplete || !gameAccountAddress) { // Ensure setup is complete
-      setSubmissionStatus('error');
-      alert('Account setup not complete. Cannot submit score.'); // Should not happen if game was played
+  // Renamed and adjusted submission logic
+  const performScoreSubmission = useCallback(async () => {
+    if (!isAccountSetupComplete || !gameAccountAddress || score <= 0) { 
+      console.log('Conditions not met for score submission:', { isAccountSetupComplete, gameAccountAddress, score });
+      if (score > 0) { 
+          setSubmissionStatus('error');
+      } else {
+          setSubmissionStatus('idle'); 
+      }
       return;
     }
-    // PlayerName for high score list is now `currentGameAccountUsername` if set, or fallback to input
-    // For simplicity, high score will use the username from the account. We can remove playerName input field.
+    
     const highScoreUsername = currentGameAccountUsername || 'Anonymous'; 
 
-    setIsSubmitting(true);
-    setSubmissionStatus('idle');
-    // setCurrentGameAccountUsername(null); // Don't clear this, it holds the valid username
-    // setShowWelcomeModal(false); // Modal is handled differently now
+    setIsSubmitting(true); // Keep for broader control if needed
+    setSubmissionStatus('pending'); 
     console.log('Submitting score:', score, 'for player:', highScoreUsername, 'address:', gameAccountAddress);
 
     try {
@@ -432,9 +464,9 @@ const GamePage = () => {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
-                score: score,
+                score: score, 
                 address: gameAccountAddress, 
-                userName: highScoreUsername // Use the account's username
+                userName: highScoreUsername 
             }),
         });
 
@@ -445,16 +477,27 @@ const GamePage = () => {
         const result = await response.json(); 
         console.log('Score submission successful:', result);
         setSubmissionStatus('success');
-
-        // No need to check/set username here, it's done pre-game
-
     } catch (error: any) {
         console.error("Failed to submit high score:", error);
         setSubmissionStatus('error');
     } finally {
         setIsSubmitting(false);
     }
-  }, [score, gameAccountAddress, isAccountSetupComplete, currentGameAccountUsername]);
+  }, [score, gameAccountAddress, isAccountSetupComplete, currentGameAccountUsername, setIsSubmitting, setSubmissionStatus]);
+
+  // Effect to automatically submit score on game over
+  useEffect(() => {
+    // Only attempt submission if the status is idle (to prevent re-submission on re-renders after an attempt)
+    if (gameState === 'gameOver' && submissionStatus === 'idle') {
+        if (score > 0 && isAccountSetupComplete && gameAccountAddress) {
+            console.log('Game over, triggering automatic score submission.');
+            performScoreSubmission();
+        } else if (score <= 0) {
+            console.log('Game over, no score to submit or conditions not met for submission.');
+            // No action needed, submissionStatus remains 'idle', UI will show "No score to submit"
+        }
+    }
+  }, [gameState, score, isAccountSetupComplete, gameAccountAddress, performScoreSubmission, submissionStatus]);
 
   const handleSaveUsername = async () => {
     if (!modalUsernameInput.trim() || !gameAccountAddress || !parentEoaAddress) {
@@ -497,8 +540,7 @@ const GamePage = () => {
   };
 
   const playAgain = () => { 
-    // Reset submission status if any, for the UI of the game over screen
-    setSubmissionStatus('idle');
+    // submissionStatus is reset at the beginning of startGame now
     startGame(); 
   };
 
@@ -508,36 +550,38 @@ const GamePage = () => {
       return (
         <div className="flex flex-col items-center justify-center h-full">
           <h2 className="text-2xl font-bold mb-4">Welcome to Coin Catcher!</h2>
-          {connectors.map((connector) => (
-            <button
-              key={connector.uid}
-              onClick={() => connect({ connector })}
-              className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mb-2"
-            >
-              Connect with {connector.name}
-            </button>
-          ))}
           {connectError && <p className="text-red-500 mt-2">Error: {connectError.message}</p>}
-          {connectStatus === 'pending' && <p className="text-gray-500 mt-2">Connecting...</p>}
+          {connectStatus === 'pending' && <p className="text-gray-500 mt-2">Connecting with wallet...</p>}
+          {(accountStatus === 'connecting' || accountStatus === 'reconnecting') && !connectStatus && (
+            <p className="text-gray-500 mt-2">Attempting to connect...</p>
+          )}
+          {accountStatus === 'disconnected' && !connectError && (
+            <p className="text-gray-600 mt-2">Please use the "Connect Wallet" button above to play.</p>
+          )}
         </div>
       );
     }
 
-    if (accountStatus === 'connected' && !gameAccountAddress && isSettingUpAccount) {
+    if (isSettingUpAccount) { // Show a generic setup message
       return (
         <div className="flex flex-col items-center justify-center h-full">
-          <p className="text-xl">Fetching your game account...</p>
-          {gameAccountError && <p className="text-red-500 text-xl">Error fetching game account: {gameAccountError}</p>}
+          <p className="text-xl">Preparing your game account...</p>
+          {gameAccountError && <p className="text-red-500 text-xl mt-2">Error: {gameAccountError}</p>}
         </div>
       );
     }
 
-    // If game account is fetched, but setup is not complete, the modal will be shown by its own useEffect logic.
-    // We might want a loading indicator here if `isSavingUsername` is true during setup.
-    if (gameAccountAddress && !isAccountSetupComplete && showWelcomeModal) {
-        // The modal is already managing its display. 
-        // We could show a specific loading state here if isSavingUsername is true and modal is also true.
-        // For now, let the modal render itself. If no modal, and setup not complete, it means error or waiting.
+    // After SDK address is fetched, but before account setup (username) is complete, the modal will be triggered by its useEffect
+    // If there was an error during the DB fetch part of setup, gameAccountError will be shown by the above block if isSettingUpAccount is still true,
+    // or if !isAccountSetupComplete and modal isn't shown for some reason.
+    if (accountStatus === 'connected' && gameAccountAddress && !isAccountSetupComplete && !showWelcomeModal && !isSettingUpAccount) {
+        // This state indicates an issue or a brief moment before modal shows. Display a message or rely on modal.
+        return (
+            <div className="flex flex-col items-center justify-center h-full">
+                <p className="text-xl">Finalizing account setup...</p>
+                {gameAccountError && <p className="text-red-500 text-xl mt-2">Error: {gameAccountError}</p>} 
+            </div>
+        );
     }
 
     // Wallet Connected and Game Account Ready State
@@ -581,30 +625,15 @@ const GamePage = () => {
             <h2 style={{ fontSize: '40px', margin: '0 0 10px 0' }}>Game Over!</h2>
             <p style={{ fontSize: '30px', margin: '0 0 30px 0' }}>Final Score: {score}</p>
             
-            {/* Score Submission Form - No longer needs player name input here, uses account username */}
-            {submissionStatus !== 'success' && score > 0 && (
-                <div style={{ marginTop: '20px', pointerEvents: 'auto' }}>
-                    {/* Remove player name input, it's taken from currentGameAccountUsername */}
-                    {/* <input 
-                        type="text"
-                        value={playerName} // This state can be removed
-                        onChange={(e) => setPlayerName(e.target.value)} // This can be removed
-                        placeholder="Enter Your Name"
-                        maxLength={20} 
-                        disabled={isSubmitting}
-                        style={{ padding: '10px', marginRight: '10px', fontSize: '16px' }}
-                    /> */}
-                    <button 
-                        onClick={submitHighScore}
-                        disabled={isSubmitting}
-                        style={{ padding: '10px 20px', fontSize: '16px' }}
-                     >
-                        {isSubmitting ? 'Submitting Score...' : 'Submit Score'}
-                    </button>
-                    {submissionStatus === 'error' && <p style={{ color: 'red', marginTop: '10px' }}>Failed to submit score.</p>}
-                </div>
-            )}
-            {submissionStatus === 'success' && <p style={{ color: 'lime', marginTop: '10px' }}>Score submitted!</p>}
+            {/* Score Submission UI - Automatic now */}
+            <div style={{ marginTop: '20px', minHeight: '25px' /* space for messages */ }}>
+                {score > 0 && submissionStatus === 'pending' && <p style={{ color: 'yellow' }}>Submitting score...</p>}
+                {score > 0 && submissionStatus === 'success' && <p style={{ color: 'lime' }}>Score submitted!</p>}
+                {score > 0 && submissionStatus === 'error' && <p style={{ color: 'red' }}>Failed to submit score.</p>}
+                {score <= 0 && gameState === 'gameOver' && submissionStatus !== 'success' &&  (
+                     <p style={{ color: 'grey' }}>No score to submit.</p>
+                )}
+            </div>
             
             <button 
                 onClick={playAgain} 
@@ -614,7 +643,7 @@ const GamePage = () => {
                     marginTop: '30px',
                     pointerEvents: 'auto'
                 }}
-                disabled={showWelcomeModal} // Disable if modal is showing
+                disabled={showWelcomeModal || submissionStatus === 'pending'} // Disable Play Again if submitting or modal visible
              >
                 Play Again?
             </button>
