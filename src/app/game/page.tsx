@@ -3,6 +3,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { useAccount, useConnect, useDisconnect, useWalletClient, useBalance } from 'wagmi';
 import { formatEther } from 'viem';
+import type { User } from '@prisma/client'; // Import User type
 
 // Constants
 const CANVAS_WIDTH = 800;
@@ -84,13 +85,16 @@ const GamePage = () => {
   const [subAccountCreationError, setSubAccountCreationError] = useState<string | null>(null);
 
   // Parent's balance and max allocable coins for subaccounts
-  const [parentMaxAllocableCoins, setParentMaxAllocableCoins] = useState(100); // Default to 100, will be updated
+  const [parentMaxAllocableCoins, setParentMaxAllocableCoins] = useState(100);
   const parentEoaAddress = accountStatus === 'connected' && addresses && addresses.length > 0 ? addresses[addresses.length - 1] : undefined;
   const { data: parentBalanceData, isLoading: isLoadingParentBalance } = useBalance({
     address: parentEoaAddress, // Fetch balance for the calculated parent EOA
   });
 
-  const COIN_PRICE_IN_ETH = 0.000525;
+  // State for current user data fetched from DB
+  const [currentUserFromDB, setCurrentUserFromDB] = useState<User | null>(null);
+
+  const COIN_PRICE_IN_ETH = 0.000525; // Ensure this is correctly placed
 
   // Sync state to ref
   useEffect(() => {
@@ -127,21 +131,49 @@ const GamePage = () => {
         const ethBalance = parseFloat(formatEther(parentBalanceData.value));
         const maxCoins = Math.floor(ethBalance / COIN_PRICE_IN_ETH);
         console.log(`Parent ETH Balance: ${ethBalance}, Max Allocable Coins: ${maxCoins}`);
-        setParentMaxAllocableCoins(maxCoins > 0 ? maxCoins : 0); // Ensure it's not negative
-
-        // Adjust current allocation if it exceeds new max, or if max is 0 and current is not
+        setParentMaxAllocableCoins(maxCoins > 0 ? maxCoins : 0); 
         if (subAccountAllocationInput > maxCoins || (maxCoins === 0 && subAccountAllocationInput !== 0)) {
           setSubAccountAllocationInput(maxCoins > 0 ? Math.min(subAccountAllocationInput, maxCoins) : 0);
         }
       } catch (e) {
         console.error("Error calculating max allocable coins:", e);
-        setParentMaxAllocableCoins(0); // Fallback to 0 on error
+        setParentMaxAllocableCoins(0); 
       }
     } else if (selectedAddress && parentEoaAddress && selectedAddress !== parentEoaAddress) {
-      // If a subaccount is selected, reset max allocable to a sensible default (or hide UI)
-      setParentMaxAllocableCoins(100); // Or 0, depending on desired UX when non-parent is selected
+      setParentMaxAllocableCoins(100); 
     }
   }, [selectedAddress, parentEoaAddress, parentBalanceData, subAccountAllocationInput]);
+
+  // Effect to sync user with DB when main EOA is selected and connected
+  useEffect(() => {
+    const syncUserWithBackend = async () => {
+      if (accountStatus === 'connected' && parentEoaAddress && selectedAddress === parentEoaAddress) {
+        console.log('[User Sync Effect] Syncing user with DB for address:', selectedAddress);
+        try {
+          const response = await fetch('/api/user/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ walletAddress: selectedAddress }),
+          });
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `Failed to sync user: ${response.status}`);
+          }
+          const userData: User = await response.json();
+          console.log('[User Sync Effect] User synced successfully:', userData);
+          setCurrentUserFromDB(userData);
+        } catch (error) {
+          console.error('[User Sync Effect] Error syncing user:', error);
+          setCurrentUserFromDB(null); 
+        }
+      } else if (currentUserFromDB) { 
+        // If no longer connected as parent EOA, or if conditions change, clear the current user
+        setCurrentUserFromDB(null);
+        console.log('[User Sync Effect] Cleared currentUserFromDB as conditions for sync are no longer met.');
+      }
+    };
+    syncUserWithBackend();
+  }, [accountStatus, selectedAddress, parentEoaAddress]); // Dependency array corrected
 
   // Main game loop and event listeners effect
   useEffect(() => {
@@ -457,6 +489,7 @@ const GamePage = () => {
 
         console.log('Calling wallet_addSubAccount with parent EOA:', parentEoaAddress);
         // Actual SDK call
+        console.log('[SUBACCOUNT] BEFORE calling walletClient.request for wallet_addSubAccount');
         const subAccountSDKResponse = await walletClient.request({
             method: 'wallet_addSubAccount',
             params: [{
@@ -467,18 +500,41 @@ const GamePage = () => {
                 }
             }]
         } as any) as AddSubAccountResponse | null; // Cast request options to any, and response to expected type or null
+        console.log('[SUBACCOUNT] AFTER walletClient.request call. Raw response:', subAccountSDKResponse);
 
         // Type guard for the response structure
         if (!subAccountSDKResponse || typeof subAccountSDKResponse.address !== 'string') {
-            console.error('Invalid or null response from wallet_addSubAccount:', subAccountSDKResponse);
+            console.error('[SUBACCOUNT] Invalid or null response from wallet_addSubAccount.');
             setSubAccountCreationError('Failed to get subaccount address from wallet. The wallet might have denied the request or an unexpected error occurred.');
             setIsCreatingSubAccount(false);
             return;
         }
         const newSubAccountAddress = subAccountSDKResponse.address as string;
-        console.log('SDK returned new subaccount address:', newSubAccountAddress);
+        console.log('[SUBACCOUNT] SDK returned new subaccount address:', newSubAccountAddress);
         
-        // Now call our backend to save this subaccount
+        // Check if this subaccount already exists for this parent in our DB
+        console.log(`[SUBACCOUNT] Checking if subaccount ${newSubAccountAddress} already exists for parent ${parentEoaAddress}`);
+        const checkResponse = await fetch(`/api/subaccount?address=${encodeURIComponent(newSubAccountAddress)}&parentWalletAddress=${encodeURIComponent(parentEoaAddress)}`);
+
+        if (checkResponse.ok) { // Status 200 means it already exists
+            const existingSubAccount = await checkResponse.json();
+            console.log('[SUBACCOUNT] Subaccount already exists in DB:', existingSubAccount);
+            setSubAccountCreationError(`Subaccount (${newSubAccountAddress.substring(0,6)}...) already exists for this parent.`);
+            setIsCreatingSubAccount(false);
+            // Optionally disable the creation UI here
+            return; // Don't proceed to create again
+        } else if (checkResponse.status !== 404) {
+            // Handle unexpected errors during check (e.g., 500)
+            const errorData = await checkResponse.json();
+            console.error('[SUBACCOUNT] Error checking subaccount existence:', errorData);
+            setSubAccountCreationError(`Error checking if subaccount exists: ${errorData.error || checkResponse.statusText}`);
+            setIsCreatingSubAccount(false);
+            return;
+        }
+        // If status was 404, it means the subaccount doesn't exist for this parent, proceed to create
+        console.log('[SUBACCOUNT] Subaccount does not exist for this parent in DB. Proceeding with POST /api/subaccount.');
+
+        // Call backend to SAVE this NEW subaccount
         console.log('Calling backend /api/subaccount with:', {
             parentWalletAddress: parentEoaAddress,
             subAccountName: subAccountNameInput,
@@ -537,7 +593,7 @@ const GamePage = () => {
         // TODO: Update parent's displayed total allocated coins / available coins.
 
     } catch (error: any) {
-        console.error('Error creating subaccount:', error);
+        console.error('[SUBACCOUNT] Error during walletClient.request or subsequent logic:', error);
         let message = 'Failed to create subaccount.';
         if (error.code === 4001) { // User rejected request
             message = 'User rejected the request.';

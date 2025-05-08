@@ -85,15 +85,14 @@ The following tasks will guide the development process. Each task includes succe
     *   [x] **Task 7.1: Implement Account Selection Dropdown**
     *   [ ] **Task 7.2: Implement Subaccount Creation & Coin Allocation** (Executor Mode)
         *   [x] **Schema:** Add `allocatedCoins Int @default(0)` to `SubAccount` model.
-        *   [ ] **Coinbase SDK Interaction (Frontend/Backend):** Researched `wallet_addSubAccount` RPC. Plan to use `walletClient.request`. No specific on-chain spend limit parameters will be passed to the SDK for now for this feature.
-        *   [ ] **Frontend UI (Parent View):** 
-            *   Implement UI for subaccount name and coin allocation slider.
-            *   **Fetch parent's ETH wallet balance and calculate max allocable coins based on 1 coin = 0.000525 ETH.**
-            *   **Adjust slider max value dynamically based on parent's calculated max coins.**
-            *   Display parent's available (unallocated) coins (deferred for now, focus on max slider value).
-        *   [ ] **Frontend Logic (Handle SDK Call & API):** Implement SDK call for `wallet_addSubAccount` and subsequent call to our backend.
-        *   [ ] **Backend API (`POST /api/subaccount`):** Implement endpoint. Validate allocation against parent's dynamically calculated max coins. Store `allocatedCoins`.
-        *   [ ] **Frontend Logic (Post-Creation):** Update UI.
+        *   [x] **Coinbase SDK Interaction (Frontend/Backend):** Implemented `wallet_addSubAccount` via `walletClient.request`. Confirmed successful response and address retrieval (no user popup needed).
+        *   [x] **Frontend UI (Parent View):** Implemented UI. Fetches parent ETH balance, calculates max coins, updates slider.
+        *   [x] **Frontend Logic (Handle SDK Call & API):** Implemented SDK call for `wallet_addSubAccount` and call to `/api/subaccount` backend.
+        *   [x] **Backend API (`POST /api/subaccount`):** Implemented endpoint. Saves record to DB.
+        *   [ ] **Frontend Logic (Post-Creation):** Basic UI updates (alert, form reset). *Enhancements needed: Display existing subaccounts, update parent available balance display.*
+    *   [x] **Task 7.3: Implement User Record Sync on Connect** (Executor Mode)
+        *   [x] **Backend API (`POST /api/user/sync`):** Implemented using Prisma upsert.
+        *   [x] **Frontend Logic (`GamePage.tsx`):** Calls `/api/user/sync` on parent EOA connect.
 *   [ ] **Task 8: Dynamic In-Game Currency Management**
 *   [ ] **Task 9: Power-Up System - Basic Implementation (Frontend Focus)**
 *   [ ] **Task 10: UI/UX Polish based on GDD (Initial Pass)**
@@ -125,6 +124,21 @@ The following tasks will guide the development process. Each task includes succe
 *   Frontend UI for subaccount creation (name input, initial 0-100 slider, button) is implemented in `GamePage.tsx` and confirmed working by user (placeholder logic for button).
 *   **Clarifications received:** 1 coin = 0.000525 ETH. Subaccount spending limit is an in-game allocation rule (`SubAccount.allocatedCoins`), not an on-chain SDK-configured limit for this feature.
 *   Next step for Task 7.2: Fetch parent's ETH balance using `useBalance`, calculate max game coins, and update the allocation slider's max value dynamically.
+*   Implemented `/api/user/sync` endpoint and integrated it into `GamePage.tsx` to ensure parent `User` record exists before subaccount creation.
+*   Frontend for subaccount creation in `GamePage.tsx` now calls `wallet_addSubAccount` SDK method and then `/api/subaccount` backend.
+*   User encountered Prisma error "Unknown argument `allocatedCoins`" when creating subaccount.
+*   Regenerated Prisma Client using `npx prisma generate --schema=./src/prisma/schema.prisma`.
+*   User needs to restart the Next.js development server to load the updated client.
+*   Awaiting user testing of the full subaccount creation flow after server restart.
+*   User *still* encountering Prisma error "Unknown argument `allocatedCoins`" after regenerating client and restarting server.
+*   Suspecting deeper cache or build issue.
+*   Instructed user to: 1. Stop server. 2. Run `rm -rf .next node_modules`. 3. Run `npm install` (or equivalent). 4. Await Prisma client regeneration.
+*   Waiting for user confirmation before regenerating client again and proceeding with testing.
+*   Resolved Prisma "Unknown argument `allocatedCoins`" error by cleaning project artifacts (`.next`, `node_modules`), reinstalling, regenerating client, and restarting server.
+*   Confirmed `wallet_addSubAccount` SDK call is succeeding and returning the new subaccount address without requiring a user confirmation popup.
+*   The full flow (UI -> SDK -> Backend DB Save) for subaccount creation appears functional.
+*   Core logic for Task 7.2 is complete. UI enhancements (displaying subaccounts, available balance) remain.
+*   Awaiting user confirmation of final test and direction for the next task.
 
 ## Lessons
 
@@ -142,6 +156,9 @@ The following tasks will guide the development process. Each task includes succe
 *   Wagmi's `useAccount()` hook might return a subaccount as the main `address` if a subaccount is actively selected in the connected wallet (e.g. Coinbase Smart Wallet). The full list of accounts is in `addresses`. To reliably identify the EOA, assumptions about its position in the `addresses` array (e.g., last item) might be needed if `address` itself isn't the EOA.
 *   CSS `pointer-events: none` on an overlay can prevent it from capturing clicks, allowing interaction with elements underneath. `pointer-events: auto` can be used on child elements (like buttons on the overlay) to make them interactive again.
 *   Coinbase Wallet SDK provides `wallet_addSubAccount` (EIP-7895) for programmatically creating subaccounts. It can be called via `walletClient.request` (from Wagmi's `useWalletClient`). Parameters involve specifying account type (`create`) and owner keys.
+*   Ensuring a `User` record exists in the DB (e.g., via an upsert API called on connect) is crucial before performing operations that rely on that user existing (like creating child subaccounts linked to a parent user ID).
+*   After modifying the Prisma schema and running `prisma db push` or `prisma generate`, it's often necessary to restart the application server (e.g., Next.js dev server) to ensure it uses the newly generated Prisma Client.
+*   Coinbase Smart Wallet's `wallet_addSubAccount` RPC (EIP-7895) may succeed and return a new subaccount address without an explicit user confirmation popup, streamlining the UX.
 
 ---
 This GDD-informed plan is now in `.cursor/scratchpad.md`. Please let me know when you're ready to switch to Executor mode and which task to begin with. 
