@@ -2,7 +2,7 @@
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { useAccount, useConnect, useDisconnect, useWalletClient, useBalance } from 'wagmi';
-import { formatEther } from 'viem';
+import { formatEther, parseEther } from 'viem';
 import Leaderboard from '@/components/Leaderboard';
 
 // Constants
@@ -48,6 +48,35 @@ interface AddSubAccountResponse {
   factory?: string; // Address
   factoryData?: string; // Hex
 }
+
+// Define Power-Up Types
+interface PowerUp {
+  id: string;
+  name: string;
+  icon: string; // Emoji or placeholder
+  cost: number;
+  durationMs: number;
+  description: string;
+}
+
+const AVAILABLE_POWER_UPS: PowerUp[] = [
+  {
+    id: 'wideBasket',
+    name: 'Wide Basket',
+    icon: '↔️',
+    cost: 10, // Example cost
+    durationMs: 7000, // 7 seconds
+    description: 'Temporarily increases basket width.',
+  },
+  {
+    id: 'slowTime',
+    name: 'Slow Mo',
+    icon: '⏳',
+    cost: 15, // Example cost
+    durationMs: 5000, // 5 seconds
+    description: 'Briefly slows down falling coins.',
+  },
+];
 
 const GamePage = () => {
   // Wagmi Hooks
@@ -101,24 +130,35 @@ const GamePage = () => {
   // State for player's game coins derived from ETH balance
   const [playerGameCoins, setPlayerGameCoins] = useState<number>(0);
 
-  const COIN_PRICE_IN_ETH = 0.000525; // Ensure this is correctly placed
+  // State for power-ups
+  const [currentBasketWidth, setCurrentBasketWidth] = useState<number>(BASKET_WIDTH);
+  const [activePowerUps, setActivePowerUps] = useState<Record<string, number | null>>({});
+  const [isTransactionPending, setIsTransactionPending] = useState<boolean>(false);
+  const [gameSpeedMultiplier, setGameSpeedMultiplier] = useState<number>(1); // New state for game speed
+
+  // State for countdown timer
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [isStarting, setIsStarting] = useState<boolean>(false); // To prevent double clicks
+
+  const COIN_PRICE_IN_ETH = 0.000525;
 
   // Effect to calculate game coins from ETH balance
   useEffect(() => {
-    if (balanceData) {
+    if (balanceData && parentEoaAddress) { 
       try {
         const ethValue = parseFloat(formatEther(balanceData.value));
         const calculatedGameCoins = Math.floor(ethValue / COIN_PRICE_IN_ETH);
-        setPlayerGameCoins(calculatedGameCoins);
-        console.log(`ETH Balance: ${ethValue}, Game Coins: ${calculatedGameCoins}`);
+        setPlayerGameCoins(calculatedGameCoins); 
+        console.log(`ETH Balance: ${ethValue}, Game Coins: ${calculatedGameCoins} for ${parentEoaAddress}`);
+
       } catch (e) {
-        console.error("Error calculating game coins from ETH balance:", e);
-        setPlayerGameCoins(0); // Default to 0 on error
+        console.error("Error calculating game coins from ETH balance:", e); // Changed console message slightly
+        setPlayerGameCoins(0); 
       }
     } else {
-      setPlayerGameCoins(0); // Default to 0 if no balance data
+      setPlayerGameCoins(0); 
     }
-  }, [balanceData]); // Re-run when balanceData changes
+  }, [balanceData, parentEoaAddress]);
 
   // Sync coins state to ref
   useEffect(() => {
@@ -264,9 +304,11 @@ const GamePage = () => {
       }
     };
 
+    let frameCount = 0; // Frame counter for logging
     const gameLoop = () => {
       if (!context) return;
       const currentTime = Date.now();
+      frameCount++; // Increment frame counter
 
       // --- Game State Check --- 
       if (gameState !== 'running') {
@@ -287,7 +329,13 @@ const GamePage = () => {
       // --- Calculate Current Fall Speed --- 
       const elapsedTimeMs = currentTime - gameStartTimeRef.current;
       const currentInterval = Math.floor(elapsedTimeMs / (SPEED_INCREASE_INTERVAL_S * 1000));
-      const currentFallSpeed = BASE_COIN_FALL_SPEED + (currentInterval * SPEED_INCREASE_AMOUNT);
+      const baseSpeed = BASE_COIN_FALL_SPEED + (currentInterval * SPEED_INCREASE_AMOUNT);
+      const currentFallSpeed = baseSpeed * gameSpeedMultiplier;
+      
+      // Log speed values and coin count periodically (e.g., every 60 frames)
+      if (frameCount % 60 === 0 && gameState === 'running') { 
+        console.log(`[gameLoop] Multiplier: ${gameSpeedMultiplier}, BaseSpeed: ${baseSpeed.toFixed(2)}, FallSpeed: ${currentFallSpeed.toFixed(2)}, Coins: ${coinsRef.current.length}`);
+      }
       // --- End Fall Speed Calculation ---
 
       // --- Timer Update --- 
@@ -312,13 +360,17 @@ const GamePage = () => {
       if (leftArrowPressed.current) newBasketX -= BASKET_MOVE_SPEED;
       if (rightArrowPressed.current) newBasketX += BASKET_MOVE_SPEED;
       if (newBasketX < 0) newBasketX = 0;
-      if (newBasketX + BASKET_WIDTH > CANVAS_WIDTH) newBasketX = CANVAS_WIDTH - BASKET_WIDTH;
+      if (newBasketX + currentBasketWidth > CANVAS_WIDTH) newBasketX = CANVAS_WIDTH - currentBasketWidth;
       if (newBasketX !== basketX) setBasketX(newBasketX);
       // --- End Basket Movement --- 
 
       // --- Spawning --- 
+      // Apply gameSpeedMultiplier to spawn rate (effectiveMinTimeBetweenSpawns will be longer if speed is slower)
+      const effectiveMinTimeBetweenSpawns = MIN_TIME_BETWEEN_SPAWNS_MS / gameSpeedMultiplier;
       const timeSinceLastSpawn = currentTime - actualLastSpawnOccasionTimeRef.current;
-      if (timeSinceLastSpawn > MIN_TIME_BETWEEN_SPAWNS_MS) {
+      
+      // Check against effectiveMinTimeBetweenSpawns
+      if (timeSinceLastSpawn > effectiveMinTimeBetweenSpawns) {
         if (coinsRef.current.length === 0 || (coinsRef.current.length > 0 && coinsRef.current[coinsRef.current.length - 1].y >= CANVAS_HEIGHT * 0.25)) {
           spawnCoin();
         }
@@ -328,7 +380,7 @@ const GamePage = () => {
       const basketTopY = CANVAS_HEIGHT - BASKET_HEIGHT - BASKET_Y_OFFSET;
       const basketBottomY = basketTopY + BASKET_HEIGHT;
       const basketLeftX = basketX;
-      const basketRightX = basketX + BASKET_WIDTH;
+      const basketRightX = basketX + currentBasketWidth;
 
       let scoreUpdateAmountInFrame = 0;
       let missedCoinsUpdateInFrame = 0;
@@ -398,7 +450,7 @@ const GamePage = () => {
         context.closePath();
       });
       context.fillStyle = BASKET_COLOR;
-      context.fillRect(basketX, basketTopY, BASKET_WIDTH, BASKET_HEIGHT);
+      context.fillRect(basketX, basketTopY, currentBasketWidth, BASKET_HEIGHT);
 
       // --- Draw HUD (Score, Timer, Missed Coins) ---
       context.fillStyle = '#333333'; // Dark color for text
@@ -427,7 +479,7 @@ const GamePage = () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [basketX, gameState, score]); // Added gameState and score to dependencies
+  }, [basketX, gameState, score, currentBasketWidth, gameSpeedMultiplier]); // Added gameSpeedMultiplier to dependencies
 
   // Function to initiate connection
   const connectWallet = () => {
@@ -437,34 +489,70 @@ const GamePage = () => {
       }
   };
 
-  // Modified Start Game: Requires game account address
+  // Modified startGame to include countdown
   const startGame = () => {
-    if (gameState === 'running' || !gameAccountAddress || !isAccountSetupComplete) {
-        console.log("Cannot start game. State:", gameState, "Game Account Address:", gameAccountAddress, "SetupComplete:", isAccountSetupComplete);
-        if (isSettingUpAccount) {
-            alert('Still setting up game account, please wait...');
-        } else if (gameAccountError) {
-            alert(`Cannot start game: ${gameAccountError}`);
+    // Prevent starting if already running, already starting, or setup/account not ready
+    if (gameState === 'running' || isStarting || !gameAccountAddress || !isAccountSetupComplete) { 
+        console.log("Cannot start game. State:", gameState, "isStarting:", isStarting, "Account Ready:", !!gameAccountAddress, "SetupComplete:", isAccountSetupComplete);
+        // Alert user if relevant condition fails (optional, could rely on button being disabled)
+        if (isStarting) {
+             alert("Game is already starting...");
         } else if (!isAccountSetupComplete) {
-            alert('Please complete account setup (set username) before starting the game.');
-            setShowWelcomeModal(true); 
+             alert('Please complete account setup (set username) before starting the game.');
+             setShowWelcomeModal(true); 
         }
         return;
     }
-    console.log("Starting game with account:", gameAccountAddress, "Username:", currentGameAccountUsername);
+    
+    console.log("Initiating start sequence...");
+    setIsStarting(true); // Mark that we are in the start sequence
+    setGameState('idle'); // Ensure state is idle before countdown shows over canvas
+    setSubmissionStatus('idle'); // Reset submission status
+
+    // Reset game values immediately before countdown starts
     setScore(0);
     setMissedCoins(0);
     setTimer(GAME_DURATION_S);
     coinsRef.current = [];
     setCoins([]);
-    setBasketX(CANVAS_WIDTH / 2 - BASKET_WIDTH / 2);
+    setCurrentBasketWidth(BASKET_WIDTH); 
+    // Set basket position based on the default width, before potential power-ups affect it
+    setBasketX(CANVAS_WIDTH / 2 - BASKET_WIDTH / 2); 
+    setActivePowerUps({}); 
+    setGameSpeedMultiplier(1); 
+    console.log(`[startGame] Reset gameSpeedMultiplier to: ${1}`);
     leftArrowPressed.current = false;
     rightArrowPressed.current = false;
-    actualLastSpawnOccasionTimeRef.current = 0; 
-    lastTimerUpdateTimeRef.current = Date.now();
-    gameStartTimeRef.current = Date.now();
-    setSubmissionStatus('idle');
-    setGameState('running');
+
+    // Start countdown
+    setCountdown(3);
+    let count = 3;
+    const countdownInterval = setInterval(() => {
+        count--;
+        setCountdown(currentCount => (currentCount ? currentCount - 1 : 0)); // More robust state update
+        
+        if (count <= 0) {
+            clearInterval(countdownInterval);
+            setCountdown(null); // Hide countdown number
+            console.log("Countdown finished. Starting game!");
+            
+            // Set actual game start time and state
+            lastTimerUpdateTimeRef.current = Date.now();
+            gameStartTimeRef.current = Date.now();
+            setGameState('running');
+            setIsStarting(false); // Finish start sequence
+        }
+    }, 1000); // 1 second interval
+
+    // Optional: Store interval ID to clear it if component unmounts during countdown
+    // const intervalIdRef = useRef<NodeJS.Timeout | null>(null);
+    // intervalIdRef.current = countdownInterval; 
+    // Need cleanup in a useEffect return if using ref.
+  };
+
+  // playAgain just calls startGame, which now includes the countdown
+  const playAgain = () => { 
+    startGame(); 
   };
 
   // Renamed and adjusted submission logic
@@ -565,10 +653,121 @@ const GamePage = () => {
     }
   };
 
-  const playAgain = () => { 
-    // submissionStatus is reset at the beginning of startGame now
-    startGame(); 
+  // Function to activate a power-up with on-chain transaction
+  const handleActivatePowerUp = async (powerUpId: string) => {
+    const powerUp = AVAILABLE_POWER_UPS.find(p => p.id === powerUpId);
+    if (!powerUp) return;
+    if (!walletClient) {
+      alert("Wallet client not available. Please connect your wallet properly.");
+      return;
+    }
+    if (!gameAccountAddress) {
+      alert("Game account address not available. Cannot initiate transaction.");
+      return;
+    }
+
+    // UI check for affordability (displayed coins)
+    if (playerGameCoins < powerUp.cost) {
+      alert("Not enough displayed game coins! Check your ETH balance."); // User sees this based on displayed ETH-derived coins
+      return;
+    }
+
+    if (activePowerUps[powerUpId] && activePowerUps[powerUpId]! > Date.now()) {
+      alert(`${powerUp.name} is already active!`);
+      return;
+    }
+    if (isTransactionPending) {
+      alert("Another power-up transaction is already in progress.");
+      return;
+    }
+
+    setIsTransactionPending(true);
+    console.log(`Attempting to purchase ${powerUp.name} for ${powerUp.cost} coins.`);
+
+    try {
+      const ethCost = powerUp.cost * COIN_PRICE_IN_ETH;
+      // Ensure ethCost has a reasonable number of decimal places for parseEther
+      // Viem's parseEther expects a string. toFixed can help control precision.
+      const ethCostString = ethCost.toFixed(18); // Max 18 decimal places for Ether
+
+      console.log(`Calculated ETH cost: ${ethCostString} for ${powerUp.name}. Sending from: ${gameAccountAddress}`);
+
+      const txHash = await walletClient.sendTransaction({
+        account: gameAccountAddress as `0x${string}`,
+        to: '0xd09e70C83185E9b5A2Abd365146b58Ef0ebb8B7B',
+        value: parseEther(ethCostString),
+        // chainId: walletClient.chain.id // Pass chainId if needed, walletClient might infer
+      });
+
+      console.log(`Transaction for ${powerUp.name} sent. Hash: ${txHash}. Activating power-up optimistically.`);
+      // TODO: Add robust waiting for transaction receipt for confirmed activation
+      // For now, activate optimistically after sending. User will see effect, 
+      // and displayed ETH coins will update when wallet balance changes.
+
+      // Deduct from displayed frontend coins (user feedback)
+      setPlayerGameCoins(prevCoins => prevCoins - powerUp.cost);
+
+      // Activate power-up effects
+      const expiryTime = Date.now() + powerUp.durationMs;
+      setActivePowerUps(prev => ({ ...prev, [powerUpId]: expiryTime }));
+
+      if (powerUp.id === 'wideBasket') {
+        setCurrentBasketWidth(BASKET_WIDTH * 1.5);
+      }
+      if (powerUp.id === 'slowTime') {
+        setGameSpeedMultiplier(0.5); // Slow down game to half speed
+        console.log(`[handleActivatePowerUp] Set gameSpeedMultiplier to: ${0.5}`); // Log activation
+      }
+      // Add other power-up effects here
+
+    } catch (err: any) {
+      console.error(`Transaction for ${powerUp.name} failed:`, err);
+      // Try to provide a more user-friendly error
+      if (err.message && err.message.includes('User rejected the request')) {
+        alert('Transaction rejected.');
+      } else if (err.message && err.message.includes('insufficient funds')) {
+        alert('Transaction failed: Insufficient funds in the game account for cost + gas.');
+      } else {
+        alert(`Power-up purchase failed: ${err.shortMessage || err.message || 'Unknown error'}`);
+      }
+    } finally {
+      setIsTransactionPending(false);
+    }
   };
+
+  // Effect to manage power-up expiry
+  useEffect(() => {
+    const interval = setInterval(() => {
+      let updated = false;
+      const now = Date.now();
+      const newActivePowerUps = { ...activePowerUps };
+
+      for (const powerUpId in newActivePowerUps) {
+        const expiry = newActivePowerUps[powerUpId];
+        if (expiry && now > expiry) {
+          console.log(`${AVAILABLE_POWER_UPS.find(p=>p.id === powerUpId)?.name} expired.`);
+          newActivePowerUps[powerUpId] = null; // Mark as inactive or remove
+          updated = true;
+
+          // Deactivate effect
+          if (powerUpId === 'wideBasket') {
+            setCurrentBasketWidth(BASKET_WIDTH);
+          }
+          if (powerUpId === 'slowTime') {
+            setGameSpeedMultiplier(1); // Reset game speed
+            console.log(`[Expiry Effect] Reset gameSpeedMultiplier to: ${1}`); // Log deactivation
+          }
+          // TODO: Deactivate other power-up effects
+        }
+      }
+
+      if (updated) {
+        setActivePowerUps(newActivePowerUps);
+      }
+    }, 1000); // Check every second
+
+    return () => clearInterval(interval);
+  }, [activePowerUps]);
 
   // Render Logic
   const renderContent = () => {
@@ -612,103 +811,153 @@ const GamePage = () => {
 
     // Wallet Connected and Game Account Ready State
     return (
-      <div 
-        className="relative z-10" 
-        style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}
-      >
-        {/* Display the game account being used */}
-        {gameAccountAddress && (
-          <div className="absolute top-2 left-2 text-xs text-gray-500 bg-white p-1 rounded shadow z-20">
-            Game Account: {gameAccountAddress.substring(0, 6)}...{gameAccountAddress.substring(gameAccountAddress.length - 4)}
-          </div>
-        )}
+      <div className="flex flex-col items-center">
+        <div 
+          className="relative z-10 mb-4" // Container for canvas and overlays
+          style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}
+        >
+          {/* Display the game account being used */}
+          {gameAccountAddress && (
+            <div className="absolute top-2 left-2 text-xs text-gray-500 bg-white p-1 rounded shadow z-20">
+              Game Account: {gameAccountAddress.substring(0, 6)}...{gameAccountAddress.substring(gameAccountAddress.length - 4)}
+            </div>
+          )}
 
-        <canvas ref={canvasRef} className="border border-gray-300 rounded-lg shadow-md" />
-        {gameState === 'idle' && gameAccountAddress && isAccountSetupComplete && (
-          <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 40, pointerEvents: 'none' }}>
-            <button onClick={startGame} disabled={!isAccountSetupComplete} style={{ padding: '20px 40px', fontSize: '24px', pointerEvents: 'auto' }}>Start Game</button>
+          <canvas ref={canvasRef} className="border border-gray-300 rounded-lg shadow-md" />
+          
+          {/* Start Game Button Overlay (Only when idle and not starting) */}
+          {gameState === 'idle' && gameAccountAddress && isAccountSetupComplete && !isStarting && (
+            <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 40, pointerEvents: 'none' }}>
+              <button onClick={startGame} disabled={isStarting} style={{ padding: '20px 40px', fontSize: '24px', pointerEvents: 'auto' }}>Start Game</button>
+            </div>
+          )}
+
+          {/* Countdown Timer Overlay */}
+          {isStarting && countdown !== null && (
+            <div style={{
+              position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+              display: 'flex', justifyContent: 'center', alignItems: 'center',
+              zIndex: 50, // Ensure it's above other overlays like start button overlay
+              fontSize: '120px', 
+              fontWeight: 'bold', 
+              color: 'white',
+              textShadow: '2px 2px 8px rgba(0,0,0,0.7)'
+            }}>
+              {countdown}
+            </div>
+          )}
+
+          {/* Game Over Overlay */}
+          {gameState === 'gameOver' && gameAccountAddress && (
+            <div style={{
+               position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', 
+               display: 'flex', 
+               justifyContent: 'center', 
+               alignItems: 'center',
+               color: 'white', 
+               textAlign: 'center',
+               flexDirection: 'column', 
+               zIndex: 40,
+               pointerEvents: 'auto'
+           }}>
+              <h2 style={{ fontSize: '40px', margin: '0 0 10px 0' }}>Game Over!</h2>
+              <p style={{ fontSize: '30px', margin: '0 0 30px 0' }}>Final Score: {score}</p>
+              
+              {/* Score Submission UI - Automatic now */}
+              <div style={{ marginTop: '20px', minHeight: '25px' /* space for messages */ }}>
+                  {score > 0 && submissionStatus === 'pending' && <p style={{ color: 'yellow' }}>Submitting score...</p>}
+                  {score > 0 && submissionStatus === 'success' && <p style={{ color: 'lime' }}>Score submitted!</p>}
+                  {score > 0 && submissionStatus === 'error' && <p style={{ color: 'red' }}>Failed to submit score.</p>}
+                  {score <= 0 && gameState === 'gameOver' && submissionStatus !== 'success' &&  (
+                       <p style={{ color: 'grey' }}>No score to submit.</p>
+                  )}
+              </div>
+              
+              <button 
+                  onClick={playAgain} 
+                  style={{ 
+                      padding: '15px 30px', 
+                      fontSize: '20px', 
+                      marginTop: '30px',
+                      pointerEvents: 'auto'
+                  }}
+                  disabled={showWelcomeModal || submissionStatus === 'pending'} // Disable Play Again if submitting or modal visible
+               >
+                  Play Again?
+              </button>
           </div>
-        )}
-        {gameState === 'idle' && gameAccountAddress && !isAccountSetupComplete && !showWelcomeModal && (
-             <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.1)', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', zIndex: 40 }}>
-                <p className="text-xl text-gray-700">Please set your username to play.</p>
-                {usernameSaveError && <p style={{ color: 'red', marginTop: '10px' }}>Error: {usernameSaveError}</p>} 
-                {/* Modal should be shown by its own logic, this is a fallback message area if modal isn't showing but should be */} 
-            </div>
-        )}
-        {gameState === 'gameOver' && gameAccountAddress && (
-          <div style={{
-             position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', 
-             display: 'flex', 
-             justifyContent: 'center', 
-             alignItems: 'center',
-             color: 'white', 
-             textAlign: 'center',
-             flexDirection: 'column', 
-             zIndex: 40,
-             pointerEvents: 'auto'
-         }}>
-            <h2 style={{ fontSize: '40px', margin: '0 0 10px 0' }}>Game Over!</h2>
-            <p style={{ fontSize: '30px', margin: '0 0 30px 0' }}>Final Score: {score}</p>
-            
-            {/* Score Submission UI - Automatic now */}
-            <div style={{ marginTop: '20px', minHeight: '25px' /* space for messages */ }}>
-                {score > 0 && submissionStatus === 'pending' && <p style={{ color: 'yellow' }}>Submitting score...</p>}
-                {score > 0 && submissionStatus === 'success' && <p style={{ color: 'lime' }}>Score submitted!</p>}
-                {score > 0 && submissionStatus === 'error' && <p style={{ color: 'red' }}>Failed to submit score.</p>}
-                {score <= 0 && gameState === 'gameOver' && submissionStatus !== 'success' &&  (
-                     <p style={{ color: 'grey' }}>No score to submit.</p>
-                )}
-            </div>
-            
-            <button 
-                onClick={playAgain} 
-                style={{ 
-                    padding: '15px 30px', 
-                    fontSize: '20px', 
-                    marginTop: '30px',
-                    pointerEvents: 'auto'
-                }}
-                disabled={showWelcomeModal || submissionStatus === 'pending'} // Disable Play Again if submitting or modal visible
-             >
-                Play Again?
-            </button>
+          )}
+
+          {/* Welcome Modal */}
+          {showWelcomeModal && (
+               <div 
+                  style={{
+                      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
+                      backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 100, 
+                      display: 'flex', alignItems: 'center', justifyContent: 'center'
+                  }}
+               >
+                   <div style={{ background: 'white', padding: '30px', borderRadius: '8px', color: '#333', textAlign: 'center', width: '90%', maxWidth: '400px' }}>
+                      <h2 style={{ marginTop: 0, marginBottom: '15px' }}>Welcome!</h2>
+                      <p style={{ marginBottom: '20px' }}>Please set your display name:</p>
+                      <input 
+                          type="text"
+                          value={modalUsernameInput}
+                          onChange={(e) => setModalUsernameInput(e.target.value)}
+                          placeholder="Enter desired username"
+                          maxLength={20} 
+                          disabled={isSavingUsername}
+                          style={{ padding: '10px', width:'calc(100% - 22px)', marginBottom: '20px', fontSize: '16px', border:'1px solid #ccc', borderRadius: '4px' }}
+                      />
+                      <button 
+                          onClick={handleSaveUsername} // This now calls /api/account/setup
+                          disabled={isSavingUsername || !modalUsernameInput.trim() || !parentEoaAddress /* Ensure parent EOA is available */}
+                          style={{ padding: '10px 20px', fontSize: '16px', cursor: 'pointer' }}
+                       >
+                          {isSavingUsername ? 'Saving...' : 'Save Name & Continue'}
+                      </button>
+                      {usernameSaveError && <p style={{ color: 'red', marginTop: '15px' }}>{usernameSaveError}</p>}
+                   </div>
+               </div>
+          )}
+
         </div>
-        )}
 
-        {/* Welcome Modal */}
-        {showWelcomeModal && (
-             <div 
-                style={{
-                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
-                    backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 100, 
-                    display: 'flex', alignItems: 'center', justifyContent: 'center'
-                }}
-             >
-                 <div style={{ background: 'white', padding: '30px', borderRadius: '8px', color: '#333', textAlign: 'center', width: '90%', maxWidth: '400px' }}>
-                    <h2 style={{ marginTop: 0, marginBottom: '15px' }}>Welcome!</h2>
-                    <p style={{ marginBottom: '20px' }}>Please set your display name:</p>
-                    <input 
-                        type="text"
-                        value={modalUsernameInput}
-                        onChange={(e) => setModalUsernameInput(e.target.value)}
-                        placeholder="Enter desired username"
-                        maxLength={20} 
-                        disabled={isSavingUsername}
-                        style={{ padding: '10px', width:'calc(100% - 22px)', marginBottom: '20px', fontSize: '16px', border:'1px solid #ccc', borderRadius: '4px' }}
-                    />
-                    <button 
-                        onClick={handleSaveUsername} // This now calls /api/account/setup
-                        disabled={isSavingUsername || !modalUsernameInput.trim() || !parentEoaAddress /* Ensure parent EOA is available */}
-                        style={{ padding: '10px 20px', fontSize: '16px', cursor: 'pointer' }}
-                     >
-                        {isSavingUsername ? 'Saving...' : 'Save Name & Continue'}
-                    </button>
-                    {usernameSaveError && <p style={{ color: 'red', marginTop: '15px' }}>{usernameSaveError}</p>}
-                 </div>
-             </div>
+        {/* Power-ups Display Area */}
+        {accountStatus === 'connected' && isAccountSetupComplete && (gameState === 'idle' || gameState === 'gameOver') && (
+          <div className="w-full max-w-md p-4 bg-gray-100 rounded-lg shadow mb-4">
+            <h3 className="text-xl font-semibold text-center mb-3 text-gray-700">Power-ups</h3>
+            <div className="flex justify-around items-start">
+              {AVAILABLE_POWER_UPS.map((powerUp, index) => {
+                const isActive = activePowerUps[powerUp.id] && activePowerUps[powerUp.id]! > Date.now();
+                const canAfford = playerGameCoins >= powerUp.cost;
+                const isGameRunning = gameState === 'running'; // Helper variable
+                return (
+                  <button
+                    key={powerUp.id}
+                    onClick={() => handleActivatePowerUp(powerUp.id)}
+                    disabled={isActive || !canAfford || isGameRunning || isTransactionPending}
+                    title={`${powerUp.description}\nDuration: ${powerUp.durationMs / 1000}s${isActive ? ' (Active)': ''}`}
+                    className={`p-3 m-1 border rounded-lg shadow-sm transition-all flex flex-col items-center w-32
+                                ${isActive ? 'bg-green-200 cursor-not-allowed' : 
+                                 !canAfford ? 'bg-red-200 cursor-not-allowed' : 'bg-blue-100 hover:bg-blue-200'}`}
+                  >
+                    <span className="text-2xl mb-1">{powerUp.icon}</span>
+                    <span className="text-sm font-medium">
+                      {powerUp.name} {index === 0 ? '(A)' : index === 1 ? '(S)' : ''}
+                    </span>
+                    <span className="text-xs text-gray-600">Cost: {powerUp.cost} 🪙</span>
+                    {isActive && (
+                        <span className="text-xs text-green-700 mt-1">
+                           Active ({Math.ceil((activePowerUps[powerUp.id]! - Date.now()) / 1000)}s left)
+                        </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         )}
-
       </div>
     );
   };
