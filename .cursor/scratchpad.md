@@ -71,8 +71,37 @@ The following tasks will guide the development process. Each task includes succe
     *   [x] **Implement keyboard shortcuts (A/S) for power-up activation**
         *   Description: Added 'A' for Wide Basket and 'S' for Slow Mo keyboard shortcuts during active gameplay.
         *   Success Criteria: Pressing 'A' or 'S' during `gameState === 'running'` activates the respective power-ups, subject to standard activation conditions (cost, cooldown, etc.).
+    *   [x] **Make Game Page the Application Homepage**
+        *   Description: Moved game functionality from `src/app/game/page.tsx` to `src/app/page.tsx`, making the game the root page. Deleted the old `src/app/game/page.tsx` file and `src/app/game/` directory.
+        *   Success Criteria: Game loads at `/`. Old `/game` path is non-functional. Obsolete files/directory removed.
 *   [ ] **Task 11: Basic Testing Strategy & Implementation**
 *   [ ] **Task 12: Documentation - User Flows & API (Initial Draft)**
+*   [ ] **New Major Task: Implement Game Account Spending Limit Progress Bar**
+    *   Description: Display a progress bar and textual information indicating how much of the game account's configured spending allowance (derived from `src/wagmi.ts` defaults) has been used within the current allowance period. This allowance persists across sessions and replenishes periodically.
+    *   **Sub-Tasks:**
+        1.  [x] **Define Allowance Constants:**
+            *   Description: Centralize constants for `DEFAULT_ALLOWANCE_ETH = 0.01` and `DEFAULT_ALLOWANCE_PERIOD_SECONDS = 86400` (1 day), based on `src/wagmi.ts`.
+            *   Action: Create/update `src/lib/constants.ts`.
+            *   Success Criteria: Constants defined and importable.
+        2.  [x] **Update Prisma Schema (`Account` model):**
+            *   Description: Add fields to `Account` model for allowance tracking.
+            *   Action: Add `currentAllowanceLimitETH: Float`, `currentAllowancePeriodSeconds: Int`, `allowancePeriodStart: DateTime`, `allowanceSpentThisPeriodETH: Float @default(0)` to `src/prisma/schema.prisma`. Run `prisma db push` & `prisma generate`.
+            *   Success Criteria: Schema updated, Prisma client regenerated.
+        3.  [x] **Modify Backend API: Account Setup (`POST /api/account/setup`):**
+            *   Description: Initialize allowance fields for new/updated accounts.
+            *   Action: On account creation/update, set new allowance fields using constants and current timestamp for `allowancePeriodStart`.
+            *   Success Criteria: Accounts correctly initialized with allowance data.
+        4.  [x] **Modify Backend API: Fetch Account Details (`GET /api/account`):**
+            *   Description: Implement period reset logic and return current allowance status.
+            *   Action: If period expired (`allowancePeriodStart` + `currentAllowancePeriodSeconds` < now), reset `allowancePeriodStart` to now, `allowanceSpentThisPeriodETH` to 0, and save. Return all allowance fields.
+            *   Success Criteria: API returns up-to-date allowance info, handles period resets.
+        5.  [x] **Create Backend API: Record Spending (`POST /api/account/record-spend`):**
+            *   Description: Endpoint to update cumulative spending for the current period.
+            *   Action: Input `gameAccountAddress`, `amountSpentETH`. Fetch account, perform period reset. Validate `(spent + newSpend) <= limit`. If valid, increment `allowanceSpentThisPeriodETH`, save. Return success/error.
+            *   Success Criteria: Spending recorded, validated against limit/period.
+        6.  [ ] **Modify Frontend: Power-Up Activation (`handleActivatePowerUp` in `src/app/page.tsx`):**
+            *   Description: Client-side pre-check and call to backend to record spend.
+            *   Action: Before `sendTransaction`, check if `(spent + cost) > limit`. If so, alert & return. After `sendTransaction` submits, call `POST /api/account/record-spend`.
 
 ## Project Status Board
 
@@ -96,8 +125,37 @@ The following tasks will guide the development process. Each task includes succe
     *   [x] **Implement keyboard shortcuts (A/S) for power-up activation**
         *   Description: Added 'A' for Wide Basket and 'S' for Slow Mo keyboard shortcuts during active gameplay.
         *   Success Criteria: Pressing 'A' or 'S' during `gameState === 'running'` activates the respective power-ups, subject to standard activation conditions (cost, cooldown, etc.).
+    *   [x] **Make Game Page the Application Homepage**
+        *   Description: Moved game functionality from `src/app/game/page.tsx` to `src/app/page.tsx`, making the game the root page. Deleted the old `src/app/game/page.tsx` file and `src/app/game/` directory.
+        *   Success Criteria: Game loads at `/`. Old `/game` path is non-functional. Obsolete files/directory removed.
 *   [ ] **Task 11: Basic Testing Strategy & Implementation**
 *   [ ] **Task 12: Documentation - User Flows & API (Initial Draft)**
+*   [ ] **New Major Task: Implement Game Account Spending Limit Progress Bar**
+    *   Description: Display a progress bar and textual information indicating how much of the game account's configured spending allowance (derived from `src/wagmi.ts` defaults) has been used within the current allowance period. This allowance persists across sessions and replenishes periodically.
+    *   **Sub-Tasks:**
+        1.  [x] **Define Allowance Constants:**
+            *   Description: Centralize constants for `DEFAULT_ALLOWANCE_ETH = 0.01` and `DEFAULT_ALLOWANCE_PERIOD_SECONDS = 86400` (1 day), based on `src/wagmi.ts`.
+            *   Action: Create/update `src/lib/constants.ts`.
+            *   Success Criteria: Constants defined and importable.
+        2.  [x] **Update Prisma Schema (`Account` model):**
+            *   Description: Add fields to `Account` model for allowance tracking.
+            *   Action: Add `currentAllowanceLimitETH: Float`, `currentAllowancePeriodSeconds: Int`, `allowancePeriodStart: DateTime`, `allowanceSpentThisPeriodETH: Float @default(0)` to `src/prisma/schema.prisma`. Run `prisma db push` & `prisma generate`.
+            *   Success Criteria: Schema updated, Prisma client regenerated.
+        3.  [x] **Modify Backend API: Account Setup (`POST /api/account/setup`):**
+            *   Description: Initialize allowance fields for new/updated accounts.
+            *   Action: On account creation/update, set new allowance fields using constants and current timestamp for `allowancePeriodStart`.
+            *   Success Criteria: Accounts correctly initialized with allowance data.
+        4.  [x] **Modify Backend API: Fetch Account Details (`GET /api/account`):**
+            *   Description: Implement period reset logic and return current allowance status.
+            *   Action: If period expired (`allowancePeriodStart` + `currentAllowancePeriodSeconds` < now), reset `allowancePeriodStart` to now, `allowanceSpentThisPeriodETH` to 0, and save. Return all allowance fields.
+            *   Success Criteria: API returns up-to-date allowance info, handles period resets.
+        5.  [x] **Create Backend API: Record Spending (`POST /api/account/record-spend`):**
+            *   Description: Endpoint to update cumulative spending for the current period.
+            *   Action: Input `gameAccountAddress`, `amountSpentETH`. Fetch account, perform period reset. Validate `(spent + newSpend) <= limit`. If valid, increment `allowanceSpentThisPeriodETH`, save. Return success/error.
+            *   Success Criteria: Spending recorded, validated against limit/period.
+        6.  [ ] **Modify Frontend: Power-Up Activation (`handleActivatePowerUp` in `src/app/page.tsx`):**
+            *   Description: Client-side pre-check and call to backend to record spend.
+            *   Action: Before `sendTransaction`, check if `(spent + cost) > limit`. If so, alert & return. After `sendTransaction` submits, call `POST /api/account/record-spend`.
 
 ## Current Status / Progress Tracking
 
@@ -107,6 +165,7 @@ The following tasks will guide the development process. Each task includes succe
 *   Plan updated to address the power-up UI visibility to ensure it's always visible (when appropriate conditions like account connection are met) and to fix the linter error by ensuring the internal logic correctly disables buttons during active gameplay.
 *   Power-up UI visibility has been corrected: The section is now visible when `gameState` is 'idle' (before game) and 'running' (during gameplay), and hidden when `gameState` is 'gameOver'. The related linter error has been resolved.
 *   Keyboard shortcuts for power-up activation have been implemented: 'A' for Wide Basket and 'S' for Slow Mo can be used during active gameplay (`gameState === 'running'`) to trigger power-ups. Input fields now correctly prevent game control activation.
+*   The game has been successfully moved to be the application's homepage (`/`). The content of `src/app/game/page.tsx` was moved to `src/app/page.tsx`, and the old `src/app/game/` directory and its page file were deleted.
 
 ## Executor's Feedback or Assistance Requests
 

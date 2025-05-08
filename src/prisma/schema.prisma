@@ -23,6 +23,12 @@ model Account {
 
   // Relation to High Scores achieved by this account
   highScores          HighScore[]  @relation("AccountScores") 
+
+  // Allowance Tracking
+  currentAllowanceLimitETH    Float?
+  currentAllowancePeriodSeconds Int?
+  allowancePeriodStart        DateTime?
+  allowanceSpentThisPeriodETH Float     @default(0)
 }
 
 // REMOVED SubAccount model

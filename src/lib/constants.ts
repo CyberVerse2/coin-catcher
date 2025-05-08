@@ -1,0 +1,2 @@
+export const DEFAULT_ALLOWANCE_ETH = 0.01;
+export const DEFAULT_ALLOWANCE_PERIOD_SECONDS = 86400; // 1 day 

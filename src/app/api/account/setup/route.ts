@@ -1,6 +1,10 @@
 import { Account } from '@prisma/client';
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import {
+  DEFAULT_ALLOWANCE_ETH,
+  DEFAULT_ALLOWANCE_PERIOD_SECONDS,
+} from '@/lib/constants'; // Import constants
 
 // const prisma = new PrismaClient(); // Remove local instantiation
 
@@ -36,20 +40,34 @@ export async function POST(request: Request) {
     // --- End Input Validation ---
 
     const trimmedUsername = newUsername.trim();
+    const now = new Date(); // Use a consistent timestamp
 
     // Upsert the Account
     // This will create the account if it doesn't exist, or update it if it does.
+    // Importantly, we also initialize/reset allowance details here.
     const account: Account = await prisma.account.upsert({
       where: { walletAddress: gameAccountAddress },
       update: {
         username: trimmedUsername,
-        parentWalletAddress: parentEoaAddress , // Ensure parent is linked/updated
+        parentWalletAddress: parentEoaAddress, // Ensure parent is linked/updated
+        // Update allowance details - this ensures they are set even if user updates name later
+        currentAllowanceLimitETH: DEFAULT_ALLOWANCE_ETH,
+        currentAllowancePeriodSeconds: DEFAULT_ALLOWANCE_PERIOD_SECONDS,
+        // Optionally: Only reset period/spent if user didn't exist before? 
+        // For simplicity, let's reset on every setup call for now.
+        allowancePeriodStart: now,
+        allowanceSpentThisPeriodETH: 0,
       },
       create: {
         walletAddress: gameAccountAddress,
-        parentWalletAddress: parentEoaAddress ,
+        parentWalletAddress: parentEoaAddress,
         username: trimmedUsername,
-        allocatedCoins: 100, // Default allocation
+        allocatedCoins: 100, // Default allocation - NOTE: Is this field still used?
+        // Initialize allowance details
+        currentAllowanceLimitETH: DEFAULT_ALLOWANCE_ETH,
+        currentAllowancePeriodSeconds: DEFAULT_ALLOWANCE_PERIOD_SECONDS,
+        allowancePeriodStart: now,
+        allowanceSpentThisPeriodETH: 0,
       },
     });
 
