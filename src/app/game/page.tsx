@@ -3,6 +3,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { useAccount, useConnect, useDisconnect, useWalletClient, useBalance } from 'wagmi';
 import { formatEther } from 'viem';
+import Leaderboard from '@/components/Leaderboard';
 
 // Constants
 const CANVAS_WIDTH = 800;
@@ -723,6 +724,8 @@ const GamePage = () => {
         )}
       </div>
       {renderContent()}
+      {/* Render Leaderboard below the game content */}
+      { accountStatus === 'connected' && isAccountSetupComplete && <Leaderboard />}
     </div>
   );
 };
