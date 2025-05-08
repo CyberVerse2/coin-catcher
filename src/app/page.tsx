@@ -119,6 +119,7 @@ const GamePage = () => {
   const [playerName, setPlayerName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionStatus, setSubmissionStatus] = useState<'idle' | 'pending' | 'success' | 'error'>('idle');
+  const [isNewPersonalBest, setIsNewPersonalBest] = useState<boolean>(false); // State for personal best flag
 
   // State for the single game account address (from SDK)
   const [gameAccountAddress, setGameAccountAddress] = useState<string | null>(null);
@@ -680,6 +681,9 @@ const GamePage = () => {
 
   // Renamed and adjusted submission logic
   const performScoreSubmission = useCallback(async () => {
+    // Reset personal best flag at the start of attempting submission
+    setIsNewPersonalBest(false); 
+
     if (!isAccountSetupComplete || !gameAccountAddress || scoreRef.current <= 0) { 
       console.log('Conditions not met for score submission:', { isAccountSetupComplete, gameAccountAddress, score: scoreRef.current });
       if (scoreRef.current > 0) { 
@@ -711,9 +715,15 @@ const GamePage = () => {
             const errorData = await response.json();
             throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
         }
-        const result = await response.json(); 
+        // --- Updated Response Handling --- 
+        const result = await response.json(); // Expecting { highScore, account, newPersonalBest }
         console.log('Score submission successful:', result);
         setSubmissionStatus('success');
+        setIsNewPersonalBest(result.newPersonalBest || false); // Update state based on API response
+        if (result.account) {
+            setAccountData(result.account); // Update local account data with potentially new personal best
+        }
+        // --- End Updated Response Handling ---
     } catch (error: any) {
         console.error("Failed to submit high score:", error);
         setSubmissionStatus('error');
@@ -1037,10 +1047,17 @@ const GamePage = () => {
                background: 'rgba(0,0,0,0.7)'
            }}>
               <h2 style={{ fontSize: '40px', margin: '0 0 10px 0' }}>Game Over!</h2>
-              <p style={{ fontSize: '30px', margin: '0 0 30px 0' }}>Final Score: {scoreRef.current}</p>
+              <p style={{ fontSize: '30px', margin: '0 0 10px 0' }}>Final Score: {scoreRef.current}</p>
+              {/* --- Personal Best Celebration --- */} 
+              {isNewPersonalBest && (
+                <p style={{ color: '#FFD700', fontSize: '24px', fontWeight: 'bold', margin: '0 0 20px 0', textShadow: '1px 1px 2px black' }}>
+                  🎉 New Personal Best! 🎉
+                </p>
+              )}
+              {/* --- End Personal Best Celebration --- */} 
               
               {/* Score Submission UI - Automatic now */}
-              <div style={{ marginTop: '20px', minHeight: '25px' /* space for messages */ }}>
+              <div style={{ marginTop: '0px', minHeight: '25px' /* space for messages, reduced margin */ }}>
                   {scoreRef.current > 0 && submissionStatus === 'pending' && <p style={{ color: 'white' }}>Submitting score...</p>}
                   {scoreRef.current > 0 && submissionStatus === 'success' && <p style={{ color: 'white' }}>Score submitted!</p>}
                   {scoreRef.current > 0 && submissionStatus === 'error' && <p style={{ color: 'white' }}>Failed to submit score.</p>}
