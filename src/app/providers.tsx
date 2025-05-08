@@ -5,6 +5,7 @@ import { type ReactNode, useState } from 'react'
 import { type State, WagmiProvider } from 'wagmi'
 
 import { getConfig } from '@/wagmi'
+import { ModalProvider } from '@/contexts/modal-context'
 
 export function Providers(props: {
   children: ReactNode
@@ -16,7 +17,9 @@ export function Providers(props: {
   return (
     <WagmiProvider config={config} initialState={props.initialState}>
       <QueryClientProvider client={queryClient}>
+        <ModalProvider>
         {props.children}
+        </ModalProvider>
       </QueryClientProvider>
     </WagmiProvider>
   )

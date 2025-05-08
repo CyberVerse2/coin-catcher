@@ -5,6 +5,7 @@ import { useAccount, useConnect, useDisconnect, useWalletClient, useBalance } fr
 import { formatEther, parseEther } from 'viem';
 import Leaderboard from '@/components/Leaderboard';
 import { Account as PrismaAccount } from '@prisma/client'; // Import the generated type
+import { useModal } from '@/contexts/modal-context';
 
 // Constants
 const CANVAS_WIDTH = 800;
@@ -85,6 +86,7 @@ const GamePage = () => {
   const { connectors, connect, error: connectError, status: connectStatus } = useConnect();
   const { disconnect } = useDisconnect();
   const { data: walletClient } = useWalletClient();
+  const { alert, confirm, success, error, showModal } = useModal()
   
   // Determine parent EOA from addresses list
   const parentEoaAddress = accountStatus === 'connected' && addresses && addresses.length > 0 ? addresses[addresses.length - 1] : undefined;
@@ -616,7 +618,7 @@ const GamePage = () => {
         console.log("Cannot start game. State:", gameState, "isStarting:", isStarting, "Account Ready:", !!gameAccountAddress, "SetupComplete:", isAccountSetupComplete);
         // Alert user if relevant condition fails (optional, could rely on button being disabled)
         if (isStarting) {
-             alert("Game is already starting...");
+              alert("Game is already starting...");
         } else if (!isAccountSetupComplete) {
              alert('Please complete account setup (set username) before starting the game.');
              setShowWelcomeModal(true); 
