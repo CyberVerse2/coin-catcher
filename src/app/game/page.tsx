@@ -2,7 +2,7 @@
 
 import React, { useRef, useEffect, useState } from 'react';
 
-// Constants (ensure these are final user values)
+// Constants
 const CANVAS_WIDTH = 800;
 const CANVAS_HEIGHT = 600;
 const COIN_RADIUS = 20;
@@ -12,12 +12,16 @@ const COIN_FALL_SPEED = 1.5;
 const MIN_TIME_BETWEEN_SPAWNS_MS = 500;
 const MIN_SPAWN_DISTANCE_FACTOR = 4;
 const MAX_SPAWN_ATTEMPTS = 10;
-
 const BASKET_WIDTH = 100;
 const BASKET_HEIGHT = 20;
 const BASKET_COLOR = '#333333';
 const BASKET_Y_OFFSET = 30;
 const BASKET_MOVE_SPEED = 5;
+const GAME_DURATION_S = 60; // Game duration in seconds
+const MAX_MISSED_COINS = 3;
+
+// Types
+type GameState = 'idle' | 'running' | 'gameOver';
 
 interface Coin {
   id: number;
@@ -32,14 +36,23 @@ let nextCoinId = 0;
 
 const GamePage = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [coins, setCoins] = useState<Coin[]>([]);
-  const coinsRef = useRef<Coin[]>([]); // Ref holds the mutable game state for the loop
-
+  const [gameState, setGameState] = useState<GameState>('idle');
+  const [coins, setCoins] = useState<Coin[]>([]); 
+  const coinsRef = useRef<Coin[]>([]);
   const [score, setScore] = useState(0);
+  const [timer, setTimer] = useState(GAME_DURATION_S);
+  const [missedCoins, setMissedCoins] = useState(0);
   const actualLastSpawnOccasionTimeRef = useRef<number>(0);
+  const lastTimerUpdateTimeRef = useRef<number>(0); // Ref for timer update logic
   const [basketX, setBasketX] = useState(CANVAS_WIDTH / 2 - BASKET_WIDTH / 2);
   const leftArrowPressed = useRef(false);
   const rightArrowPressed = useRef(false);
+  const animationFrameIdRef = useRef<number | null>(null); // Ref to store animation frame ID
+
+  // Sync state to ref
+  useEffect(() => {
+    coinsRef.current = coins;
+  }, [coins]);
 
   // Main game loop and event listeners effect
   useEffect(() => {
@@ -50,11 +63,12 @@ const GamePage = () => {
 
     canvasElement.width = CANVAS_WIDTH;
     canvasElement.height = CANVAS_HEIGHT;
-
-    // Sync initial state to ref
-    coinsRef.current = coins;
+    
+    // Initialize ref with current state value
+    coinsRef.current = coins; 
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (gameState !== 'running') return; // Only allow movement if running
       if (event.key === 'ArrowLeft') leftArrowPressed.current = true;
       if (event.key === 'ArrowRight') rightArrowPressed.current = true;
     };
@@ -71,7 +85,7 @@ const GamePage = () => {
       while (attempts < MAX_SPAWN_ATTEMPTS) {
         const potentialX = Math.random() * (CANVAS_WIDTH - COIN_RADIUS * 2) + COIN_RADIUS;
         let tooClose = false;
-        for (const existingCoin of coinsRef.current) { // Use ref
+        for (const existingCoin of coinsRef.current) { 
           if (existingCoin.y < COIN_RADIUS * 5 && Math.abs(potentialX - existingCoin.x) < minHorizontalDistance) {
             tooClose = true; break;
           }
@@ -83,9 +97,8 @@ const GamePage = () => {
             type: isGold ? 'gold' : 'silver', value: isGold ? 5 : 1,
             spawnTime: Date.now(),
           };
-          console.log(`Spawning coin ${newCoin.id}`);
-          coinsRef.current.push(newCoin); // Mutate ref directly
-          setCoins([...coinsRef.current]); // Update state to trigger re-render eventually
+          coinsRef.current.push(newCoin); 
+          setCoins([...coinsRef.current]); 
           actualLastSpawnOccasionTimeRef.current = Date.now();
           return;
         }
@@ -93,35 +106,60 @@ const GamePage = () => {
       }
     };
 
-    let animationFrameId: number;
     const gameLoop = () => {
-      if (!context) return; // Ensure context is still valid
+      if (!context) return;
+      const currentTime = Date.now();
+
+      // --- Game State Check --- 
+      if (gameState !== 'running') {
+        // Clear canvas and draw background overlay if game over
+        context.fillStyle = '#f0f0f0';
+        context.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        if (gameState === 'gameOver') {
+             context.fillStyle = 'rgba(0, 0, 0, 0.7)';
+             context.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+             // Explicitly ensuring no text is drawn on canvas here
+        }
+        // Keep requesting frames even if not running
+        animationFrameIdRef.current = requestAnimationFrame(gameLoop);
+        return; // Stop further execution in this frame if not running
+      }
+      // --- End Game State Check ---
+
+      // --- Timer Update --- 
+      if (currentTime - lastTimerUpdateTimeRef.current >= 1000) {
+          setTimer(prevTimer => {
+              const newTime = prevTimer - 1;
+              if (newTime <= 0) {
+                  setGameState('gameOver'); // Game over by time
+                  return 0;
+              }
+              return newTime;
+          });
+          lastTimerUpdateTimeRef.current = currentTime;
+      }
+      // --- End Timer Update ---
 
       context.fillStyle = '#f0f0f0';
       context.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-      const currentTime = Date.now();
 
+      // --- Basket Movement --- 
       let newBasketX = basketX;
       if (leftArrowPressed.current) newBasketX -= BASKET_MOVE_SPEED;
       if (rightArrowPressed.current) newBasketX += BASKET_MOVE_SPEED;
       if (newBasketX < 0) newBasketX = 0;
       if (newBasketX + BASKET_WIDTH > CANVAS_WIDTH) newBasketX = CANVAS_WIDTH - BASKET_WIDTH;
       if (newBasketX !== basketX) setBasketX(newBasketX);
+      // --- End Basket Movement --- 
 
-      // Restore original spawn logic, operating on coinsRef.current
+      // --- Spawning --- 
       const timeSinceLastSpawn = currentTime - actualLastSpawnOccasionTimeRef.current;
       if (timeSinceLastSpawn > MIN_TIME_BETWEEN_SPAWNS_MS) {
-        if (coinsRef.current.length === 0) {
-          // console.log(`Spawn check: OK (ref empty)`);
+        if (coinsRef.current.length === 0 || (coinsRef.current.length > 0 && coinsRef.current[coinsRef.current.length - 1].y >= CANVAS_HEIGHT * 0.25)) {
           spawnCoin();
-        } else {
-          const lastCoin = coinsRef.current[coinsRef.current.length - 1];
-          if (lastCoin.y >= CANVAS_HEIGHT * 0.25) {
-            // console.log(`Spawn check: OK (last coin Y ${lastCoin.y.toFixed(1)} >= ${CANVAS_HEIGHT * 0.25})`);
-            spawnCoin();
-          }
         }
       }
+      // --- End Spawning --- 
 
       const basketTopY = CANVAS_HEIGHT - BASKET_HEIGHT - BASKET_Y_OFFSET;
       const basketBottomY = basketTopY + BASKET_HEIGHT;
@@ -129,13 +167,12 @@ const GamePage = () => {
       const basketRightX = basketX + BASKET_WIDTH;
 
       let scoreUpdateAmountInFrame = 0;
+      let missedCoinsUpdateInFrame = 0;
       let coinsChanged = false;
       
-      // Process coins directly from the ref, iterating backwards for safe removal
+      // --- Process Coins --- 
       for (let i = coinsRef.current.length - 1; i >= 0; i--) {
         const coin = coinsRef.current[i];
-        
-        // Move coin
         coin.y += COIN_FALL_SPEED;
 
         const coinBottom = coin.y + COIN_RADIUS;
@@ -143,15 +180,15 @@ const GamePage = () => {
         const coinLeft = coin.x - COIN_RADIUS;
         const coinRight = coin.x + COIN_RADIUS;
         
-        // Check if off-screen
-        if (coin.y - COIN_RADIUS > CANVAS_HEIGHT) { // Check if top edge is below bottom
-             console.log(`Coin ${coin.id} removed (off-screen)`);
+        // Check if off-screen (Missed)
+        if (coin.y - COIN_RADIUS > CANVAS_HEIGHT) {
+             missedCoinsUpdateInFrame++;
              coinsRef.current.splice(i, 1);
              coinsChanged = true;
-             continue; // Go to next coin
+             continue; 
         }
 
-        // Check for collision with basket
+        // Check for collision with basket (Caught)
         const caught = 
             coinBottom >= basketTopY &&
             coinTop <= basketBottomY && 
@@ -160,23 +197,33 @@ const GamePage = () => {
 
         if (caught) {
           scoreUpdateAmountInFrame += coin.value;
-          console.log(`Coin ${coin.id} removed (caught)`);
           coinsRef.current.splice(i, 1);
           coinsChanged = true;
-          // No continue here, let score update happen below
         }
       }
+      // --- End Process Coins --- 
       
-      // Update React state if changes occurred
+      // --- Update State --- 
       if (coinsChanged) {
-          setCoins([...coinsRef.current]); // Trigger re-render for potential UI updates
+          setCoins([...coinsRef.current]);
       }
       if (scoreUpdateAmountInFrame > 0) {
         setScore(prevScore => prevScore + scoreUpdateAmountInFrame);
       }
+      if (missedCoinsUpdateInFrame > 0) {
+          setMissedCoins(prevCount => {
+              const newCount = prevCount + missedCoinsUpdateInFrame;
+              if (newCount >= MAX_MISSED_COINS) {
+                  setGameState('gameOver'); // Game over by misses
+                  return MAX_MISSED_COINS;
+              }
+              return newCount;
+          });
+      }
+      // --- End Update State --- 
 
-      // Draw all coins currently in the ref
-      context.fillStyle = SILVER_COIN_COLOR; // Default color
+      // --- Drawing --- 
+      context.fillStyle = SILVER_COIN_COLOR;
       coinsRef.current.forEach((coin) => {
         context.beginPath();
         context.arc(coin.x, coin.y, COIN_RADIUS, 0, Math.PI * 2);
@@ -184,27 +231,89 @@ const GamePage = () => {
         context.fill();
         context.closePath();
       });
-
       context.fillStyle = BASKET_COLOR;
       context.fillRect(basketX, basketTopY, BASKET_WIDTH, BASKET_HEIGHT);
-      animationFrameId = requestAnimationFrame(gameLoop);
+      // --- End Drawing --- 
+
+      animationFrameIdRef.current = requestAnimationFrame(gameLoop);
     };
+    
+    // Start the loop
+    animationFrameIdRef.current = requestAnimationFrame(gameLoop);
 
-    animationFrameId = requestAnimationFrame(gameLoop);
-
+    // Cleanup function
     return () => {
-      cancelAnimationFrame(animationFrameId);
+      if (animationFrameIdRef.current) {
+        cancelAnimationFrame(animationFrameIdRef.current);
+      }
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [basketX]); // Only depends on basketX now for re-running effect
+  }, [basketX, gameState, score]); // Added gameState and score to dependencies
+
+  const startGame = () => {
+    console.log("Starting game...");
+    setScore(0);
+    setMissedCoins(0);
+    setTimer(GAME_DURATION_S);
+    coinsRef.current = []; // Clear coins ref
+    setCoins([]); // Clear coins state
+    setBasketX(CANVAS_WIDTH / 2 - BASKET_WIDTH / 2); // Reset basket pos
+    leftArrowPressed.current = false;
+    rightArrowPressed.current = false;
+    actualLastSpawnOccasionTimeRef.current = 0; // Reset spawn timer
+    lastTimerUpdateTimeRef.current = Date.now(); // Reset session timer update time
+    setGameState('running');
+  };
+
+  const playAgain = () => {
+    startGame(); // For now, play again just restarts
+  }
 
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', flexDirection: 'column' }}>
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', flexDirection: 'column', textAlign: 'center' }}>
       <h1>Coin Catcher</h1>
-      <p>Score: {score}</p>
-      <canvas ref={canvasRef} style={{ border: '1px solid #000' }} />
-      <p>Fall speed: {COIN_FALL_SPEED}. Min spawn cooldown: {MIN_TIME_BETWEEN_SPAWNS_MS}ms. Next spawns after last coin falls 25%.</p>
+      <div style={{ marginBottom: '10px' }}>
+          <span>Score: {score}</span> | 
+          <span>Time Left: {timer}s</span> | 
+          <span>Missed: {missedCoins}/{MAX_MISSED_COINS}</span>
+      </div>
+      <div style={{ position: 'relative', width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}>
+          <canvas 
+              ref={canvasRef} 
+              style={{ border: '1px solid #000', display: 'block' }} 
+           />
+          {gameState === 'idle' && (
+              <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                  <button onClick={startGame} style={{ padding: '20px 40px', fontSize: '24px' }}>Start Game</button>
+              </div>
+          )}
+          {gameState === 'gameOver' && (
+               <div style={{
+                    position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', 
+                    display: 'flex', 
+                    justifyContent: 'center', 
+                    alignItems: 'center',
+                    color: 'white', 
+                    textAlign: 'center',
+                    flexDirection: 'column' 
+                }}>
+                  <h2 style={{ fontSize: '40px', margin: '0 0 10px 0' }}>Game Over!</h2>
+                  <p style={{ fontSize: '30px', margin: '0 0 30px 0' }}>Final Score: {score}</p>
+                  <button 
+                      onClick={playAgain} 
+                      style={{ 
+                          padding: '15px 30px', 
+                          fontSize: '20px', 
+                      }}
+                   >
+                      Play Again?
+                  </button>
+              </div>
+          )}
+      </div>
+      <p style={{ marginTop: '10px' }}>Use Left/Right Arrows to move the basket.</p>
+      {/* <p>Fall speed: {COIN_FALL_SPEED}. Min spawn cooldown: {MIN_TIME_BETWEEN_SPAWNS_MS}ms. Next spawns after last coin falls 25%.</p> */}
     </div>
   );
 };
