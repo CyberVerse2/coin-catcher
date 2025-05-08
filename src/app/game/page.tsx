@@ -18,14 +18,14 @@ const BASKET_WIDTH = 100;
 const BASKET_HEIGHT = 20;
 const BASKET_COLOR = '#333333';
 const BASKET_Y_OFFSET = 30;
-const BASKET_MOVE_SPEED = 5;
+const BASKET_MOVE_SPEED = 13;
 const GAME_DURATION_S = 30; // Game duration in seconds
-const MAX_MISSED_COINS = 5;
+const MAX_MISSED_COINS = 6;
 
 // Difficulty Scaling
-const BASE_COIN_FALL_SPEED = 1.5; // Original value
+const BASE_COIN_FALL_SPEED = 4; // Original value
 const SPEED_INCREASE_INTERVAL_S = 6; // Original value
-const SPEED_INCREASE_AMOUNT = 0.5; // Original value
+const SPEED_INCREASE_AMOUNT = 1.5; // Original value
 
 // Types
 type GameState = 'idle' | 'running' | 'gameOver';
@@ -284,10 +284,29 @@ const GamePage = () => {
     coinsRef.current = coins; 
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      console.log(`[KeyDown] Key: ${event.key}, GameState: ${gameState}`); // Log key presses
-      if (gameState !== 'running') return; // Only allow movement if running
-      if (event.key === 'ArrowLeft') leftArrowPressed.current = true;
-      if (event.key === 'ArrowRight') rightArrowPressed.current = true;
+      console.log(`[KeyDown] Key: ${event.key}, GameState: ${gameStateRef.current}, Target: ${event.target}`); // Log key presses
+
+      // Prevent keyboard control if an input field is focused (e.g. welcome modal)
+      if (event.target && (event.target as HTMLElement).tagName === 'INPUT') {
+        return;
+      }
+
+      if (gameStateRef.current === 'running') {
+        if (event.key === 'ArrowLeft') leftArrowPressed.current = true;
+        if (event.key === 'ArrowRight') rightArrowPressed.current = true;
+        if (event.key === 'a' || event.key === 'A') {
+            console.log("[KeyDown] 'A' pressed, attempting to activate wideBasket");
+            handleActivatePowerUp('wideBasket');
+        }
+        if (event.key === 's' || event.key === 'S') {
+            console.log("[KeyDown] 'S' pressed, attempting to activate slowTime");
+            handleActivatePowerUp('slowTime');
+        }
+      } else {
+        // If game is not running, still log but don't process game actions
+        // This helps debug if keys are registered when they shouldn't be active
+        console.log(`[KeyDown] Key: ${event.key} ignored, game not running.`);
+      }
     };
     const handleKeyUp = (event: KeyboardEvent) => {
       if (event.key === 'ArrowLeft') leftArrowPressed.current = false;
@@ -788,7 +807,7 @@ const GamePage = () => {
       setActivePowerUps(prev => ({ ...prev, [powerUpId]: expiryTime }));
 
       if (powerUp.id === 'wideBasket') {
-        setCurrentBasketWidth(BASKET_WIDTH * 1.5);
+        setCurrentBasketWidth(BASKET_WIDTH * 2);
       }
       if (powerUp.id === 'slowTime') {
         setGameSpeedMultiplier(0.5); // Slow down game to half speed
