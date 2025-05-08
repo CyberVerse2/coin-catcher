@@ -81,6 +81,7 @@ The following tasks will guide the development process. Each task includes succe
 *   [x] **Task 5: Game Session Management (Frontend + Backend Logic)**
 *   [ ] **Task 6: High Score Submission & Display**
 *   [ ] **Task 7: User Authentication & Coinbase Smart Wallet Integration**
+    *   [ ] **Task 7.1: Implement Account Selection Dropdown** (In progress - testing needed by user)
 *   [ ] **Task 8: Dynamic In-Game Currency Management**
 *   [ ] **Task 9: Power-Up System - Basic Implementation (Frontend Focus)**
 *   [ ] **Task 10: UI/UX Polish based on GDD (Initial Pass)**
@@ -94,6 +95,10 @@ The following tasks will guide the development process. Each task includes succe
 *   Task 3 (Basic Game Canvas & Coin Spawning) completed.
 *   Task 4 (Player Control & Coin Catching Logic) completed.
 *   Task 5 (Game Session Management) completed: Added game states (idle, running, gameOver), start/play again buttons, session timer (30s), missed coin limit (5), and game over conditions. Implemented increasing coin fall speed every 6 seconds.
+*   Implemented the account selection dropdown in `GamePage.tsx`.
+*   The dropdown should allow selection between the main EOA and subaccounts provided by Wagmi.
+*   The selected address is now used for starting the game and submitting high scores.
+*   Awaiting user testing and feedback on the functionality of the account selection dropdown.
 *   Awaiting instructions to begin Task 6.
 
 ## Lessons

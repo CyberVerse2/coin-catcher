@@ -41,9 +41,12 @@ let nextCoinId = 0;
 
 const GamePage = () => {
   // Wagmi Hooks
-  const { address, status: accountStatus } = useAccount(); // Renamed status to avoid conflict
+  const { address, addresses, status: accountStatus } = useAccount(); // Added 'addresses'
   const { connectors, connect, error: connectError, status: connectStatus } = useConnect();
   const { disconnect } = useDisconnect();
+
+  // State for selected address
+  const [selectedAddress, setSelectedAddress] = useState<string | undefined>(undefined);
 
   // Game State Refs and State
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -68,6 +71,20 @@ const GamePage = () => {
   useEffect(() => {
     coinsRef.current = coins;
   }, [coins]);
+
+  // Effect to set default selected address
+  useEffect(() => {
+    if (accountStatus === 'connected' && addresses && addresses.length > 0) {
+      // Prefer the main EOA (address) if available, otherwise first in list
+      if (address && addresses.includes(address)) {
+        setSelectedAddress(address);
+      } else {
+        setSelectedAddress(addresses[0]);
+      }
+    } else {
+      setSelectedAddress(undefined);
+    }
+  }, [accountStatus, address, addresses]);
 
   // Main game loop and event listeners effect
   useEffect(() => {
@@ -284,10 +301,9 @@ const GamePage = () => {
 
   // Modified Start Game: Requires connected wallet
   const startGame = () => {
-    if (accountStatus !== 'connected') {
-      console.error("Cannot start game: Wallet not connected.");
-      // Optionally prompt connection here
-      return;
+    if (gameState === 'running' || !selectedAddress) { // Check for selectedAddress
+        console.log("Cannot start game. State:", gameState, "Selected Address:", selectedAddress);
+        return;
     }
     console.log("Starting game...");
     setSubmissionStatus('idle');
@@ -304,18 +320,24 @@ const GamePage = () => {
     lastTimerUpdateTimeRef.current = Date.now();
     gameStartTimeRef.current = Date.now();
     setGameState('running');
+
+    // The gameLoop is self-perpetuating via requestAnimationFrame within its own definition
+    // and its behavior is controlled by gameState. Setting gameState to 'running' is sufficient.
+    // // Ensure game loop is started if it was stopped
+    // if (!animationFrameIdRef.current) {
+    //     animationFrameIdRef.current = requestAnimationFrame(gameLoop);
+    // }
   };
 
   // Modified Submit Score: Uses connected address
   const submitHighScore = useCallback(async () => {
-    if (!playerName.trim() || score <= 0 || isSubmitting || accountStatus !== 'connected' || !address) {
-        console.log('Submission prevented: Invalid name, score, connection status, address or already submitting.');
-        setSubmissionStatus('error'); 
-        return;
+    if (!playerName.trim() || !selectedAddress) { // Check for selectedAddress
+      setSubmissionStatus('error'); // Or some other feedback
+      return;
     }
     setIsSubmitting(true);
     setSubmissionStatus('idle');
-    console.log('Submitting score:', score, 'for player:', playerName, 'address:', address);
+    console.log('Submitting score:', score, 'for player:', playerName, 'address:', selectedAddress);
 
     try {
         const response = await fetch('/api/highscore', {
@@ -326,7 +348,7 @@ const GamePage = () => {
             // Send address instead of placeholder userId
             body: JSON.stringify({ 
                 score: score,
-                address: address, 
+                address: selectedAddress, 
                 userName: playerName.trim()
             }),
         });
@@ -344,7 +366,7 @@ const GamePage = () => {
     } finally {
         setIsSubmitting(false);
     }
-  }, [score, playerName, isSubmitting, address, accountStatus]); // Added address/status dependencies
+  }, [score, playerName, isSubmitting, selectedAddress]); // Added selectedAddress dependency
 
   const playAgain = () => { startGame(); };
 
@@ -352,95 +374,111 @@ const GamePage = () => {
   const renderContent = () => {
     if (accountStatus === 'disconnected') {
       return (
-          <div style={{ textAlign: 'center', marginTop: '50px' }}>
-              <button onClick={connectWallet} style={{ padding: '20px 40px', fontSize: '24px' }}>Connect Wallet to Play</button>
-              {connectStatus === 'pending' && <p>Connecting...</p>}
-              {connectError && <p style={{ color: 'red' }}>Error connecting: {connectError.message}</p>}
-          </div>
+        <div className="flex flex-col items-center justify-center h-full">
+          <h2 className="text-2xl font-bold mb-4">Welcome to Coin Catcher!</h2>
+          {connectors.map((connector) => (
+            <button
+              key={connector.uid}
+              onClick={() => connect({ connector })}
+              className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mb-2"
+            >
+              Connect with {connector.name}
+            </button>
+          ))}
+          {connectError && <p className="text-red-500 mt-2">Error: {connectError.message}</p>}
+          {connectStatus === 'pending' && <p className="text-gray-500 mt-2">Connecting...</p>}
+        </div>
       );
     }
 
     if (accountStatus === 'connecting') {
-        return <p>Connecting wallet...</p>;
+        return (
+            <div className="flex flex-col items-center justify-center h-full">
+                <p className="text-xl">Connecting wallet...</p>
+            </div>
+        )
     }
 
-    // Connected State:
+    // Wallet Connected State
     return (
-        <>
-            <div style={{ marginBottom: '10px', width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>
-                    Connected: {address?.substring(0, 6)}...{address?.substring(address.length - 4)}
-                </span>
-                <button onClick={() => disconnect()} style={{ padding: '5px 10px'}}>Disconnect</button>
-            </div>
-            <div style={{ marginBottom: '10px' }}>
-                <span>Score: {score}</span> | 
-                <span>Time Left: {timer}s</span> | 
-                <span>Missed: {missedCoins}/{MAX_MISSED_COINS}</span>
-            </div>
-            <div style={{ position: 'relative', width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}>
-                <canvas 
-                    ref={canvasRef} 
-                    style={{ border: '1px solid #000', display: 'block' }} 
-                />
-                {gameState === 'idle' && (
-                    <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                        <button onClick={startGame} style={{ padding: '20px 40px', fontSize: '24px' }}>Start Game</button>
-                    </div>
-                )}
-                {gameState === 'gameOver' && (
-                    <div style={{
-                         position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', 
-                         display: 'flex', 
-                         justifyContent: 'center', 
-                         alignItems: 'center',
-                         color: 'white', 
-                         textAlign: 'center',
-                         flexDirection: 'column' 
-                     }}>
-                      <h2 style={{ fontSize: '40px', margin: '0 0 10px 0' }}>Game Over!</h2>
-                      <p style={{ fontSize: '30px', margin: '0 0 30px 0' }}>Final Score: {score}</p>
-                      
-                      {/* Score Submission Form */} 
-                      {submissionStatus !== 'success' && score > 0 && (
-                          <div style={{ marginTop: '20px' }}>
-                              <input 
-                                  type="text"
-                                  value={playerName}
-                                  onChange={(e) => setPlayerName(e.target.value)}
-                                  placeholder="Enter Your Name"
-                                  maxLength={20} // Optional: limit name length
-                                  disabled={isSubmitting}
-                                  style={{ padding: '10px', marginRight: '10px', fontSize: '16px' }}
-                              />
-                              <button 
-                                  onClick={submitHighScore}
-                                  disabled={isSubmitting || !playerName.trim()}
-                                  style={{ padding: '10px 20px', fontSize: '16px' }}
-                               >
-                                  {isSubmitting ? 'Submitting...' : 'Submit Score'}
-                              </button>
-                              {submissionStatus === 'error' && <p style={{ color: 'red', marginTop: '10px' }}>Failed to submit score.</p>}
-                          </div>
-                      )}
-                      {submissionStatus === 'success' && <p style={{ color: 'lime', marginTop: '10px' }}>Score submitted!</p>}
-                      
-                      <button 
-                          onClick={playAgain} 
-                          style={{ 
-                              padding: '15px 30px', 
-                              fontSize: '20px', 
-                              marginTop: '30px' // Add margin above play again button
-                          }}
-                       >
-                          Play Again?
-                      </button>
-                  </div>
-              )}
-            </div>
-            <p style={{ marginTop: '10px' }}>Use Left/Right Arrows to move the basket.</p>
-            <p>Base Speed: {BASE_COIN_FALL_SPEED}, Increases by {SPEED_INCREASE_AMOUNT} every {SPEED_INCREASE_INTERVAL_S}s.</p>
-        </>
+      <div className="relative">
+        {/* Account Selection Dropdown */}
+        {addresses && addresses.length > 0 && (
+          <div className="absolute top-2 left-2 z-50 bg-white p-2 rounded shadow">
+            <label htmlFor="account-select" className="block text-sm font-medium text-gray-700 mr-2">Play as:</label>
+            <select
+              id="account-select"
+              value={selectedAddress || ''}
+              onChange={(e) => setSelectedAddress(e.target.value)}
+              disabled={gameState === 'running'}
+              className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+            >
+              {addresses.map((addr) => (
+                <option key={addr} value={addr}>
+                  {addr === address ? `Main (${addr.substring(0, 6)}...${addr.substring(addr.length - 4)})` : `Sub (${addr.substring(0, 6)}...${addr.substring(addr.length - 4)})`}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <canvas ref={canvasRef} className="border border-gray-300 rounded-lg shadow-md" />
+        {gameState === 'idle' && (
+          <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 40 }}>
+            <button onClick={startGame} style={{ padding: '20px 40px', fontSize: '24px' }}>Start Game</button>
+          </div>
+        )}
+        {gameState === 'gameOver' && (
+          <div style={{
+             position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', 
+             display: 'flex', 
+             justifyContent: 'center', 
+             alignItems: 'center',
+             color: 'white', 
+             textAlign: 'center',
+             flexDirection: 'column', 
+             zIndex: 40
+         }}>
+            <h2 style={{ fontSize: '40px', margin: '0 0 10px 0' }}>Game Over!</h2>
+            <p style={{ fontSize: '30px', margin: '0 0 30px 0' }}>Final Score: {score}</p>
+            
+            {/* Score Submission Form */} 
+            {submissionStatus !== 'success' && score > 0 && (
+                <div style={{ marginTop: '20px' }}>
+                    <input 
+                        type="text"
+                        value={playerName}
+                        onChange={(e) => setPlayerName(e.target.value)}
+                        placeholder="Enter Your Name"
+                        maxLength={20} // Optional: limit name length
+                        disabled={isSubmitting}
+                        style={{ padding: '10px', marginRight: '10px', fontSize: '16px' }}
+                    />
+                    <button 
+                        onClick={submitHighScore}
+                        disabled={isSubmitting || !playerName.trim()}
+                        style={{ padding: '10px 20px', fontSize: '16px' }}
+                     >
+                        {isSubmitting ? 'Submitting...' : 'Submit Score'}
+                    </button>
+                    {submissionStatus === 'error' && <p style={{ color: 'red', marginTop: '10px' }}>Failed to submit score.</p>}
+                </div>
+            )}
+            {submissionStatus === 'success' && <p style={{ color: 'lime', marginTop: '10px' }}>Score submitted!</p>}
+            
+            <button 
+                onClick={playAgain} 
+                style={{ 
+                    padding: '15px 30px', 
+                    fontSize: '20px', 
+                    marginTop: '30px' // Add margin above play again button
+                }}
+             >
+                Play Again?
+            </button>
+        </div>
+        )}
+      </div>
     );
   };
 

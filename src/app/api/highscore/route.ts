@@ -21,23 +21,48 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Invalid userName provided' }, { status: 400 });
     }
 
-    // Find or create user based on wallet address
-    const user = await prisma.user.upsert({
-      where: { walletAddress: address },
-      update: {},
-      create: {
-        walletAddress: address,
-      },
+    // Check if the address belongs to a User (main account)
+    const user = await prisma.user.findUnique({
+        where: { walletAddress: address },
     });
 
-    console.log('Found or created user:', user);
+    let highScoreData: any;
 
-    // Prepare data for HighScore
-    const highScoreData = {
-        score: score,
-        userName: userName.trim(), 
-        userId: user.id,
-    };
+    if (user) {
+        console.log('Address belongs to User:', user.id);
+        // Score belongs to the main User
+        highScoreData = {
+            score: score,
+            userName: userName.trim(), 
+            userId: user.id,
+        };
+    } else {
+        // Check if the address belongs to a known SubAccount
+        const subAccount = await prisma.subAccount.findUnique({
+            where: { subAccountAddress: address },
+        });
+
+        if (subAccount) {
+            console.log('Address belongs to SubAccount:', subAccount.id);
+            // Score belongs to the SubAccount
+            highScoreData = {
+                score: score,
+                userName: userName.trim(), // Use submitted name for now
+                subAccountId: subAccount.id,
+            };
+        } else {
+            // Address not found as User or known SubAccount
+            // This might happen if a subaccount address is used before parent registers it in our DB
+            // Handle this case: Maybe link to parent? Or reject? Reject for now.
+            console.warn(`Address ${address} not found as User or SubAccount. Rejecting score.`);
+            return NextResponse.json({ error: 'Player account not found or registered in the game system.' }, { status: 404 });
+        }
+    }
+
+    // Add the userName field to the highScoreData, required by schema
+    // Note: We added this field back to the schema earlier.
+    // Ensure your schema includes: userName String
+    // highScoreData.userName = userName.trim(); // Already included above
 
     const newHighScore = await prisma.highScore.create({
       data: highScoreData,
@@ -51,6 +76,7 @@ export async function POST(request: Request) {
     if (error instanceof SyntaxError) { 
         return NextResponse.json({ error: 'Invalid JSON payload' }, { status: 400 });
     }
+    // Add check for Prisma errors if needed
     return NextResponse.json({ error: 'Failed to save high score' }, { status: 500 });
   } finally {
     // Optional: Disconnect Prisma Client if not using connection pooling effectively
@@ -61,22 +87,18 @@ export async function POST(request: Request) {
 // --- GET Handler for Leaderboard ---
 export async function GET(request: Request) {
     try {
-        const leaderboardLimit = 10; // Fetch top 10 scores
-
+        const leaderboardLimit = 10;
         console.log(`Fetching top ${leaderboardLimit} high scores...`);
-
         const highScores = await prisma.highScore.findMany({
             take: leaderboardLimit,
             orderBy: {
                 score: 'desc',
             },
-            // Optionally include related user/subAccount if needed, but we saved userName directly
-            // select: { score: true, userName: true, createdAt: true } // Select specific fields
+             // Assuming 'userName' field exists on HighScore model now
+             select: { score: true, userName: true, createdAt: true } 
         });
-
         console.log('Fetched high scores:', highScores);
         return NextResponse.json(highScores, { status: 200 });
-
     } catch (error) {
         console.error('Error fetching high scores:', error);
         return NextResponse.json({ error: 'Failed to fetch high scores' }, { status: 500 });
