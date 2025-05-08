@@ -23,9 +23,9 @@ const GAME_DURATION_S = 30; // Game duration in seconds
 const MAX_MISSED_COINS = 5;
 
 // Difficulty Scaling
-const BASE_COIN_FALL_SPEED = 1.5; // Starting speed
-const SPEED_INCREASE_INTERVAL_S = 6; // Increase speed every 6 seconds
-const SPEED_INCREASE_AMOUNT = 0.5; // Speed increase per interval
+const BASE_COIN_FALL_SPEED = 1.5; // Original value
+const SPEED_INCREASE_INTERVAL_S = 6; // Original value
+const SPEED_INCREASE_AMOUNT = 0.5; // Original value
 
 // Types
 type GameState = 'idle' | 'running' | 'gameOver';
@@ -99,12 +99,16 @@ const GamePage = () => {
   const [coins, setCoins] = useState<Coin[]>([]); 
   const coinsRef = useRef<Coin[]>([]);
   const [score, setScore] = useState(0);
+  const scoreRef = useRef(score); // Ref for score
   const [timer, setTimer] = useState(GAME_DURATION_S);
+  const timerRef = useRef(timer); // Ref for timer
   const [missedCoins, setMissedCoins] = useState(0);
+  const missedCoinsRef = useRef(missedCoins); // Ref for missedCoins
   const actualLastSpawnOccasionTimeRef = useRef<number>(0);
   const lastTimerUpdateTimeRef = useRef<number>(0);
   const gameStartTimeRef = useRef<number>(0);
   const [basketX, setBasketX] = useState(CANVAS_WIDTH / 2 - BASKET_WIDTH / 2);
+  const basketXRef = useRef(basketX); // Ref for basketX
   const leftArrowPressed = useRef(false);
   const rightArrowPressed = useRef(false);
   const animationFrameIdRef = useRef<number | null>(null);
@@ -132,13 +136,27 @@ const GamePage = () => {
 
   // State for power-ups
   const [currentBasketWidth, setCurrentBasketWidth] = useState<number>(BASKET_WIDTH);
+  const currentBasketWidthRef = useRef(currentBasketWidth); // Ref for basket width
   const [activePowerUps, setActivePowerUps] = useState<Record<string, number | null>>({});
   const [isTransactionPending, setIsTransactionPending] = useState<boolean>(false);
-  const [gameSpeedMultiplier, setGameSpeedMultiplier] = useState<number>(1); // New state for game speed
+  const gameSpeedMultiplierRef = useRef(1); // Ref for speed multiplier
+  const [gameSpeedMultiplier, setGameSpeedMultiplier] = useState<number>(1);
 
   // State for countdown timer
   const [countdown, setCountdown] = useState<number | null>(null);
   const [isStarting, setIsStarting] = useState<boolean>(false); // To prevent double clicks
+
+  // New ref for gameState
+  const gameStateRef = useRef(gameState);
+
+  // Update refs whenever state changes
+  useEffect(() => { basketXRef.current = basketX; }, [basketX]);
+  useEffect(() => { scoreRef.current = score; }, [score]);
+  useEffect(() => { timerRef.current = timer; }, [timer]);
+  useEffect(() => { missedCoinsRef.current = missedCoins; }, [missedCoins]);
+  useEffect(() => { gameSpeedMultiplierRef.current = gameSpeedMultiplier; }, [gameSpeedMultiplier]);
+  useEffect(() => { currentBasketWidthRef.current = currentBasketWidth; }, [currentBasketWidth]);
+  useEffect(() => { gameStateRef.current = gameState; }, [gameState]);
 
   const COIN_PRICE_IN_ETH = 0.000525;
 
@@ -266,6 +284,7 @@ const GamePage = () => {
     coinsRef.current = coins; 
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      console.log(`[KeyDown] Key: ${event.key}, GameState: ${gameState}`); // Log key presses
       if (gameState !== 'running') return; // Only allow movement if running
       if (event.key === 'ArrowLeft') leftArrowPressed.current = true;
       if (event.key === 'ArrowRight') rightArrowPressed.current = true;
@@ -278,6 +297,7 @@ const GamePage = () => {
     window.addEventListener('keyup', handleKeyUp);
 
     const spawnCoin = () => {
+      console.log(`[Spawn] Attempting to spawn coin. Current count: ${coinsRef.current.length}`); // Log spawn attempt
       let attempts = 0;
       const minHorizontalDistance = COIN_RADIUS * MIN_SPAWN_DISTANCE_FACTOR;
       while (attempts < MAX_SPAWN_ATTEMPTS) {
@@ -296,33 +316,52 @@ const GamePage = () => {
             spawnTime: Date.now(),
           };
           coinsRef.current.push(newCoin); 
+          console.log(`[Spawn] Spawned ${newCoin.type} coin #${newCoin.id} at (${newCoin.x.toFixed(0)}, ${newCoin.y.toFixed(0)})`); // Log successful spawn
           setCoins([...coinsRef.current]); 
           actualLastSpawnOccasionTimeRef.current = Date.now();
           return;
         }
         attempts++;
       }
+      if (attempts >= MAX_SPAWN_ATTEMPTS) {
+           console.warn('[Spawn] Max spawn attempts reached, could not place coin.'); // Log spawn failure
+      }
     };
 
-    let frameCount = 0; // Frame counter for logging
+    let frameCount = 0;
+    let lastFrameTimestamp = performance.now(); // For delta time calculation
+
     const gameLoop = () => {
+      const loopStartTime = performance.now(); 
+      frameCount++;
+
+      // Calculate time since last frame (delta time)
+      const timeSinceLastFrame = loopStartTime - lastFrameTimestamp;
+      lastFrameTimestamp = loopStartTime;
+      
+      // Simplified periodic log condition
+      const shouldLog = frameCount % 60 === 0 && gameStateRef.current === 'running';
+
+      // Log Delta Time occasionally
+      if (shouldLog) { 
+        console.log(`[LoopTiming] Frame: ${frameCount}, Delta: ${timeSinceLastFrame.toFixed(2)}ms`);
+      }
+
       if (!context) return;
       const currentTime = Date.now();
       frameCount++; // Increment frame counter
 
       // --- Game State Check --- 
-      if (gameState !== 'running') {
+      if (gameStateRef.current !== 'running') {
         // Clear canvas and draw background overlay if game over
         context.fillStyle = '#f0f0f0';
         context.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-        if (gameState === 'gameOver') {
+        if (gameStateRef.current === 'gameOver') {
              context.fillStyle = 'rgba(0, 0, 0, 0.7)';
              context.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-             // Explicitly ensuring no text is drawn on canvas here
         }
-        // Keep requesting frames even if not running
         animationFrameIdRef.current = requestAnimationFrame(gameLoop);
-        return; // Stop further execution in this frame if not running
+        return; 
       }
       // --- End Game State Check ---
 
@@ -330,20 +369,23 @@ const GamePage = () => {
       const elapsedTimeMs = currentTime - gameStartTimeRef.current;
       const currentInterval = Math.floor(elapsedTimeMs / (SPEED_INCREASE_INTERVAL_S * 1000));
       const baseSpeed = BASE_COIN_FALL_SPEED + (currentInterval * SPEED_INCREASE_AMOUNT);
-      const currentFallSpeed = baseSpeed * gameSpeedMultiplier;
+      const currentFallSpeed = baseSpeed * gameSpeedMultiplierRef.current;
       
       // Log speed values and coin count periodically (e.g., every 60 frames)
-      if (frameCount % 60 === 0 && gameState === 'running') { 
-        console.log(`[gameLoop] Multiplier: ${gameSpeedMultiplier}, BaseSpeed: ${baseSpeed.toFixed(2)}, FallSpeed: ${currentFallSpeed.toFixed(2)}, Coins: ${coinsRef.current.length}`);
+      if (frameCount % 60 === 0 && gameStateRef.current === 'running') { 
+        console.log(`[gameLoop] Multiplier: ${gameSpeedMultiplierRef.current}, BaseSpeed: ${baseSpeed.toFixed(2)}, FallSpeed: ${currentFallSpeed.toFixed(2)}, Coins: ${coinsRef.current.length}`);
       }
       // --- End Fall Speed Calculation ---
 
       // --- Timer Update --- 
       if (currentTime - lastTimerUpdateTimeRef.current >= 1000) {
+          const oldTimer = timerRef.current; // Capture old value for logging
           setTimer(prevTimer => {
               const newTime = prevTimer - 1;
+              console.log(`[StateUpdate] setTimer: ${newTime}`); // Log timer update
               if (newTime <= 0) {
-                  setGameState('gameOver'); // Game over by time
+                  setGameState('gameOver'); 
+                  console.log(`[StateUpdate] setGameState: gameOver (timer expired)`); // Log game over by timer
                   return 0;
               }
               return newTime;
@@ -356,17 +398,22 @@ const GamePage = () => {
       context.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
       // --- Basket Movement --- 
-      let newBasketX = basketX;
+      let currentBasketX = basketXRef.current; // Read from ref
+      let newBasketX = currentBasketX;
       if (leftArrowPressed.current) newBasketX -= BASKET_MOVE_SPEED;
       if (rightArrowPressed.current) newBasketX += BASKET_MOVE_SPEED;
       if (newBasketX < 0) newBasketX = 0;
-      if (newBasketX + currentBasketWidth > CANVAS_WIDTH) newBasketX = CANVAS_WIDTH - currentBasketWidth;
-      if (newBasketX !== basketX) setBasketX(newBasketX);
+      // Use currentBasketWidthRef for boundary check
+      if (newBasketX + currentBasketWidthRef.current > CANVAS_WIDTH) newBasketX = CANVAS_WIDTH - currentBasketWidthRef.current;
+      // Update state only if value changed
+      if (newBasketX !== currentBasketX) {
+         setBasketX(newBasketX);
+      }
       // --- End Basket Movement --- 
 
       // --- Spawning --- 
       // Apply gameSpeedMultiplier to spawn rate (effectiveMinTimeBetweenSpawns will be longer if speed is slower)
-      const effectiveMinTimeBetweenSpawns = MIN_TIME_BETWEEN_SPAWNS_MS / gameSpeedMultiplier;
+      const effectiveMinTimeBetweenSpawns = MIN_TIME_BETWEEN_SPAWNS_MS / gameSpeedMultiplierRef.current;
       const timeSinceLastSpawn = currentTime - actualLastSpawnOccasionTimeRef.current;
       
       // Check against effectiveMinTimeBetweenSpawns
@@ -377,10 +424,11 @@ const GamePage = () => {
       }
       // --- End Spawning --- 
 
+      // Use currentBasketWidthRef and basketXRef for collision detection bounds
       const basketTopY = CANVAS_HEIGHT - BASKET_HEIGHT - BASKET_Y_OFFSET;
       const basketBottomY = basketTopY + BASKET_HEIGHT;
-      const basketLeftX = basketX;
-      const basketRightX = basketX + currentBasketWidth;
+      const basketLeftX = basketXRef.current; // Use ref
+      const basketRightX = basketXRef.current + currentBasketWidthRef.current; // Use refs
 
       let scoreUpdateAmountInFrame = 0;
       let missedCoinsUpdateInFrame = 0;
@@ -390,7 +438,6 @@ const GamePage = () => {
       for (let i = coinsRef.current.length - 1; i >= 0; i--) {
         const coin = coinsRef.current[i];
         
-        // Move coin using currentFallSpeed
         coin.y += currentFallSpeed;
 
         const coinBottom = coin.y + COIN_RADIUS;
@@ -403,6 +450,7 @@ const GamePage = () => {
              missedCoinsUpdateInFrame++;
              coinsRef.current.splice(i, 1);
              coinsChanged = true;
+             console.log(`[CoinEvent] Missed coin`); // Log missed coin
              continue; 
         }
 
@@ -417,22 +465,31 @@ const GamePage = () => {
           scoreUpdateAmountInFrame += coin.value;
           coinsRef.current.splice(i, 1);
           coinsChanged = true;
+          console.log(`[CoinEvent] Caught ${coin.type} coin #${coin.id}`); // Log caught coin
         }
       }
       // --- End Process Coins --- 
       
       // --- Update State --- 
       if (coinsChanged) {
-          setCoins([...coinsRef.current]);
+          setCoins([...coinsRef.current]); 
       }
       if (scoreUpdateAmountInFrame > 0) {
-        setScore(prevScore => prevScore + scoreUpdateAmountInFrame);
+        const oldScore = scoreRef.current; // Capture old value for logging
+        setScore(prevScore => {
+          const newScore = prevScore + scoreUpdateAmountInFrame;
+          console.log(`[StateUpdate] setScore: ${newScore}`); // Log score update
+          return newScore;
+        });
       }
       if (missedCoinsUpdateInFrame > 0) {
+          const oldMissed = missedCoinsRef.current; // Capture old value for logging
           setMissedCoins(prevCount => {
               const newCount = prevCount + missedCoinsUpdateInFrame;
+              console.log(`[StateUpdate] setMissedCoins: ${newCount}`); // Log missed update
               if (newCount >= MAX_MISSED_COINS) {
-                  setGameState('gameOver'); // Game over by misses
+                  setGameState('gameOver'); 
+                  console.log(`[StateUpdate] setGameState: gameOver (${newCount} missed coins)`); // Log game over by misses
                   return MAX_MISSED_COINS;
               }
               return newCount;
@@ -450,36 +507,55 @@ const GamePage = () => {
         context.closePath();
       });
       context.fillStyle = BASKET_COLOR;
-      context.fillRect(basketX, basketTopY, currentBasketWidth, BASKET_HEIGHT);
+      context.fillRect(basketXRef.current, basketTopY, currentBasketWidthRef.current, BASKET_HEIGHT);
 
       // --- Draw HUD (Score, Timer, Missed Coins) ---
       context.fillStyle = '#333333'; // Dark color for text
       context.font = '24px Arial';
       context.textAlign = 'left';
-      context.fillText(`Score: ${score}`, 20, 40);
+      context.fillText(`Score: ${scoreRef.current}`, 20, 40);
       context.textAlign = 'right';
-      context.fillText(`Time: ${timer}`, CANVAS_WIDTH - 20, 40);
+      context.fillText(`Time: ${timerRef.current}`, CANVAS_WIDTH - 20, 40);
       context.textAlign = 'left'; // Reset for next text if any or keep consistent
-      context.fillText(`Missed: ${missedCoins}/${MAX_MISSED_COINS}`, 20, 70);
+      context.fillText(`Missed: ${missedCoinsRef.current}/${MAX_MISSED_COINS}`, 20, 70);
       // --- End HUD Drawing ---
 
-      // --- End Drawing --- 
+      // Measure loop end time and log duration
+      const loopEndTime = performance.now();
+      const loopDuration = loopEndTime - loopStartTime;
+      if (shouldLog) { 
+        console.log(`           [LoopTiming] Loop Duration: ${loopDuration.toFixed(2)}ms`);
+      }
 
       animationFrameIdRef.current = requestAnimationFrame(gameLoop);
     };
     
-    // Start the loop
-    animationFrameIdRef.current = requestAnimationFrame(gameLoop);
+    // Start the loop only if gameState is 'running'
+    if (gameState === 'running') {
+        console.log('[Setup] Starting requestAnimationFrame loop');
+        lastFrameTimestamp = performance.now(); // Initialize timestamp when loop actually starts
+        frameCount = 0; // Reset frame count when loop starts
+        animationFrameIdRef.current = requestAnimationFrame(gameLoop);
+    } else {
+        // If gameState is not 'running', ensure any existing animation frame is cancelled
+        if (animationFrameIdRef.current) {
+            console.log('[Setup] Cancelling requestAnimationFrame loop because gameState is not running');
+            cancelAnimationFrame(animationFrameIdRef.current);
+            animationFrameIdRef.current = null;
+        }
+    }
 
     // Cleanup function
     return () => {
       if (animationFrameIdRef.current) {
+        console.log('[Cleanup] Cancelling requestAnimationFrame loop due to effect cleanup');
         cancelAnimationFrame(animationFrameIdRef.current);
+        animationFrameIdRef.current = null;
       }
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [basketX, gameState, score, currentBasketWidth, gameSpeedMultiplier]); // Added gameSpeedMultiplier to dependencies
+  }, [gameState]);
 
   // Function to initiate connection
   const connectWallet = () => {
@@ -557,9 +633,9 @@ const GamePage = () => {
 
   // Renamed and adjusted submission logic
   const performScoreSubmission = useCallback(async () => {
-    if (!isAccountSetupComplete || !gameAccountAddress || score <= 0) { 
-      console.log('Conditions not met for score submission:', { isAccountSetupComplete, gameAccountAddress, score });
-      if (score > 0) { 
+    if (!isAccountSetupComplete || !gameAccountAddress || scoreRef.current <= 0) { 
+      console.log('Conditions not met for score submission:', { isAccountSetupComplete, gameAccountAddress, score: scoreRef.current });
+      if (scoreRef.current > 0) { 
           setSubmissionStatus('error');
       } else {
           setSubmissionStatus('idle'); 
@@ -571,14 +647,14 @@ const GamePage = () => {
 
     setIsSubmitting(true); // Keep for broader control if needed
     setSubmissionStatus('pending'); 
-    console.log('Submitting score:', score, 'for player:', highScoreUsername, 'address:', gameAccountAddress);
+    console.log('Submitting score:', scoreRef.current, 'for player:', highScoreUsername, 'address:', gameAccountAddress);
 
     try {
         const response = await fetch('/api/highscore', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
-                score: score, 
+                score: scoreRef.current, 
                 address: gameAccountAddress, 
                 userName: highScoreUsername 
             }),
@@ -597,21 +673,21 @@ const GamePage = () => {
     } finally {
         setIsSubmitting(false);
     }
-  }, [score, gameAccountAddress, isAccountSetupComplete, currentGameAccountUsername, setIsSubmitting, setSubmissionStatus]);
+  }, [scoreRef, gameAccountAddress, isAccountSetupComplete, currentGameAccountUsername, setIsSubmitting, setSubmissionStatus]);
 
   // Effect to automatically submit score on game over
   useEffect(() => {
     // Only attempt submission if the status is idle (to prevent re-submission on re-renders after an attempt)
     if (gameState === 'gameOver' && submissionStatus === 'idle') {
-        if (score > 0 && isAccountSetupComplete && gameAccountAddress) {
+        if (scoreRef.current > 0 && isAccountSetupComplete && gameAccountAddress) {
             console.log('Game over, triggering automatic score submission.');
             performScoreSubmission();
-        } else if (score <= 0) {
+        } else if (scoreRef.current <= 0) {
             console.log('Game over, no score to submit or conditions not met for submission.');
             // No action needed, submissionStatus remains 'idle', UI will show "No score to submit"
         }
     }
-  }, [gameState, score, isAccountSetupComplete, gameAccountAddress, performScoreSubmission, submissionStatus]);
+  }, [gameState, scoreRef, isAccountSetupComplete, gameAccountAddress, performScoreSubmission, submissionStatus]);
 
   const handleSaveUsername = async () => {
     if (!modalUsernameInput.trim() || !gameAccountAddress || !parentEoaAddress) {
@@ -861,14 +937,14 @@ const GamePage = () => {
                pointerEvents: 'auto'
            }}>
               <h2 style={{ fontSize: '40px', margin: '0 0 10px 0' }}>Game Over!</h2>
-              <p style={{ fontSize: '30px', margin: '0 0 30px 0' }}>Final Score: {score}</p>
+              <p style={{ fontSize: '30px', margin: '0 0 30px 0' }}>Final Score: {scoreRef.current}</p>
               
               {/* Score Submission UI - Automatic now */}
               <div style={{ marginTop: '20px', minHeight: '25px' /* space for messages */ }}>
-                  {score > 0 && submissionStatus === 'pending' && <p style={{ color: 'yellow' }}>Submitting score...</p>}
-                  {score > 0 && submissionStatus === 'success' && <p style={{ color: 'lime' }}>Score submitted!</p>}
-                  {score > 0 && submissionStatus === 'error' && <p style={{ color: 'red' }}>Failed to submit score.</p>}
-                  {score <= 0 && gameState === 'gameOver' && submissionStatus !== 'success' &&  (
+                  {scoreRef.current > 0 && submissionStatus === 'pending' && <p style={{ color: 'yellow' }}>Submitting score...</p>}
+                  {scoreRef.current > 0 && submissionStatus === 'success' && <p style={{ color: 'lime' }}>Score submitted!</p>}
+                  {scoreRef.current > 0 && submissionStatus === 'error' && <p style={{ color: 'red' }}>Failed to submit score.</p>}
+                  {scoreRef.current <= 0 && gameState === 'gameOver' && submissionStatus !== 'success' &&  (
                        <p style={{ color: 'grey' }}>No score to submit.</p>
                   )}
               </div>
@@ -924,19 +1000,18 @@ const GamePage = () => {
         </div>
 
         {/* Power-ups Display Area */}
-        {accountStatus === 'connected' && isAccountSetupComplete && (gameState === 'idle' || gameState === 'gameOver') && (
+        {accountStatus === 'connected' && isAccountSetupComplete && (gameState === 'idle' || gameState === 'running') && (
           <div className="w-full max-w-md p-4 bg-gray-100 rounded-lg shadow mb-4">
             <h3 className="text-xl font-semibold text-center mb-3 text-gray-700">Power-ups</h3>
             <div className="flex justify-around items-start">
               {AVAILABLE_POWER_UPS.map((powerUp, index) => {
                 const isActive = activePowerUps[powerUp.id] && activePowerUps[powerUp.id]! > Date.now();
                 const canAfford = playerGameCoins >= powerUp.cost;
-                const isGameRunning = gameState === 'running'; // Helper variable
                 return (
                   <button
                     key={powerUp.id}
                     onClick={() => handleActivatePowerUp(powerUp.id)}
-                    disabled={isActive || !canAfford || isGameRunning || isTransactionPending}
+                    disabled={isActive || !canAfford || isTransactionPending}
                     title={`${powerUp.description}\nDuration: ${powerUp.durationMs / 1000}s${isActive ? ' (Active)': ''}`}
                     className={`p-3 m-1 border rounded-lg shadow-sm transition-all flex flex-col items-center w-32
                                 ${isActive ? 'bg-green-200 cursor-not-allowed' : 
